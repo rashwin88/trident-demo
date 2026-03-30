@@ -1,0 +1,241 @@
+.panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+}
+
+.title {
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 0.875rem 1rem 0.625rem;
+  margin: 0;
+  border-bottom: 1px solid var(--border-light);
+}
+
+.empty {
+  color: var(--text-muted);
+  font-size: 0.82rem;
+  padding: 2.5rem 1rem;
+  text-align: center;
+}
+
+/* ── Progress stepper ─────────────────────────── */
+
+.stepper {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.875rem 1rem 0.5rem;
+  gap: 0.25rem;
+}
+
+.step {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.3rem;
+  flex: 1;
+}
+
+.stepDot {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.6rem;
+  font-weight: 700;
+  border: 2px solid var(--border);
+  background: var(--bg-primary);
+  color: var(--text-muted);
+  transition: all 0.3s ease;
+}
+
+.stepLabel {
+  font-size: 0.6rem;
+  font-weight: 500;
+  color: var(--text-muted);
+  transition: color 0.3s ease;
+}
+
+.stepDone .stepDot {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+.stepDone .stepLabel {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.stepActive .stepDot {
+  border-color: var(--accent);
+  background: var(--accent-light);
+  color: var(--accent);
+}
+
+.stepActive .stepLabel {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.stepPending .stepDot {
+  border-color: var(--border);
+  background: var(--bg-primary);
+}
+
+/* Pulse animation for active step */
+.pulse {
+  display: block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: pulseAnim 1.5s ease-in-out infinite;
+}
+
+@keyframes pulseAnim {
+  0%, 100% { transform: scale(1); opacity: 1; }
+  50% { transform: scale(1.4); opacity: 0.5; }
+}
+
+/* ── Chunk progress ───────────────────────────── */
+
+.chunkProgress {
+  padding: 0.5rem 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.chunkLabel {
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: var(--warning);
+}
+
+.chunkBar {
+  height: 6px;
+  background: var(--bg-surface);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.chunkBarFill {
+  height: 100%;
+  background: var(--warning);
+  border-radius: 3px;
+  transition: width 0.4s ease;
+}
+
+/* ── Progress bar ─────────────────────────────── */
+
+.progressBar {
+  height: 3px;
+  background: var(--bg-surface);
+  margin: 0 1rem 0.5rem;
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.progressFill {
+  height: 100%;
+  background: var(--accent);
+  border-radius: 2px;
+  transition: width 0.5s ease;
+}
+
+.progressComplete {
+  background: var(--success);
+}
+
+.progressError {
+  background: var(--error);
+}
+
+/* ── Event log ────────────────────────────────── */
+
+.log {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0.25rem 0.625rem;
+}
+
+.entry {
+  padding: 0.4rem 0.625rem;
+  border-radius: var(--radius-sm);
+  margin-bottom: 0.15rem;
+  transition: background 0.1s;
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  animation: entryIn 0.25s ease;
+}
+
+@keyframes entryIn {
+  from { opacity: 0; transform: translateX(-8px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+.entry:hover { background: var(--bg-surface); }
+
+.warning {
+  background: var(--warning-light);
+  border-left: 2px solid var(--warning);
+}
+
+.icon {
+  font-size: 0.8rem;
+  flex-shrink: 0;
+  margin-top: 0.1rem;
+}
+
+.content {
+  flex: 1;
+  min-width: 0;
+}
+
+.stage {
+  font-weight: 600;
+  font-size: 0.65rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-right: 0.4rem;
+}
+
+.message {
+  color: var(--text-secondary);
+  font-size: 0.78rem;
+}
+
+.detailToggle {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 0.65rem;
+  cursor: pointer;
+  margin-left: 0.4rem;
+  padding: 0;
+  font-family: inherit;
+}
+
+.detailToggle:hover { color: var(--accent); }
+
+.detail {
+  width: 100%;
+  margin: 0.35rem 0 0 0;
+  padding: 0.5rem 0.625rem;
+  background: var(--bg-surface);
+  border-radius: var(--radius-sm);
+  font-size: 0.68rem;
+  color: var(--text-tertiary);
+  overflow-x: auto;
+  font-family: 'SF Mono', 'Fira Code', monospace;
+}
