@@ -50,6 +50,10 @@ async def lifespan(app: FastAPI):
     dspy.configure(lm=lm)
     logger.info(f"DSPy configured with {settings.LLM_PROVIDER}/{settings.LLM_MODEL}")
 
+    # Pre-warm Docling converter (loads ML models — avoids 30-60s delay on first PDF)
+    from ingestion.parsers import warm_up_converter
+    warm_up_converter()
+
     yield
 
     await graph_store.close()

@@ -134,6 +134,17 @@ sequenceDiagram
     FE->>U: Display answer + reasoning subgraph with anchor highlighting
 ```
 
+## Provider Management
+
+Providers are first-class, persisted entities stored as `(:Provider)` nodes in Neo4j. See [providers.md](providers.md) for full API reference.
+
+**Key design decisions:**
+
+- **Eager initialization** — All three Milvus collections (`ks_`, `ps_`, `gn_`) are created at provider creation time, not lazily at first ingestion.
+- **Neo4j persistence** — Providers survive backend restarts without an additional database.
+- **Status tracking** — Providers have a `status` field (`ready`, `ingesting`, `error`) updated by the ingestion pipeline.
+- **Cascading delete** — Deleting a provider drops all Milvus collections and all Neo4j nodes for that provider.
+
 ## Provider Isolation
 
 Each Context Provider gets its own logical namespace:
@@ -144,6 +155,16 @@ Each Context Provider gets its own logical namespace:
 - **Milvus GN**: Separate collection `gn_{provider_id}` per provider.
 
 No cross-provider queries in the prototype.
+
+## Async UI
+
+The frontend uses a non-blocking architecture. See [async-ui.md](async-ui.md) for details.
+
+- All tabs stay mounted (CSS visibility, not conditional rendering)
+- Global `JobContext` manages ingestion jobs across tab switches
+- Multi-file upload with per-provider sequential processing
+- Toast notifications for background job completions
+- Activity indicators in the tab bar
 
 ## Docker Compose Services
 

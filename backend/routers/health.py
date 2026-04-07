@@ -1,6 +1,6 @@
 from fastapi import APIRouter
 
-from dependencies import graph_store, knowledge_store
+from dependencies import graph_store, knowledge_store, procedural_store, graph_node_index
 
 router = APIRouter(tags=["health"])
 
@@ -10,7 +10,13 @@ async def health_check():
     neo4j_ok = await graph_store.verify_connectivity()
     milvus_ok = knowledge_store.verify_connectivity()
 
-    ks_collections = knowledge_store.list_collections() if milvus_ok else []
+    collections: list[str] = []
+    if milvus_ok:
+        collections = (
+            knowledge_store.list_collections()
+            + procedural_store.list_collections()
+            + graph_node_index.list_collections()
+        )
 
     return {
         "status": "ok" if (neo4j_ok and milvus_ok) else "degraded",
@@ -18,7 +24,7 @@ async def health_check():
             "neo4j": {"connected": neo4j_ok},
             "milvus": {
                 "connected": milvus_ok,
-                "collections": ks_collections,
+                "collections": collections,
             },
         },
     }

@@ -1,0 +1,44 @@
+# docker-compose.external.yml
+#
+# Lightweight deployment: only frontend + backend.
+# Neo4j and Milvus run as external managed services (Aura, Zilliz, self-hosted, etc.)
+#
+# Usage:
+#   cp .env.example .env.external
+#   # Edit .env.external with your external DB connection details
+#   docker compose -f docker-compose.external.yml --env-file .env.external up --build
+
+services:
+  # ── Backend ─────────────────────────────────────────
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env.external
+    volumes:
+      - ./backend:/app
+    mem_limit: 1g
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
+
+  # ── Frontend ────────────────────────────────────────
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    ports:
+      - "5173:5173"
+    volumes:
+      - ./frontend/src:/app/src
+      - ./frontend/index.html:/app/index.html
+      - ./frontend/vite.config.ts:/app/vite.config.ts
+    depends_on:
+      - backend
+    mem_limit: 512m

@@ -135,20 +135,20 @@
 .checking { border-left: 3px solid var(--warning); }
 
 .serviceName {
-  font-size: 0.85rem;
+  font-size: 0.92rem;
   font-weight: 600;
   color: var(--text-primary);
 }
 
 .serviceDetail {
-  font-size: 0.72rem;
-  color: var(--text-tertiary);
+  font-size: 0.78rem;
+  color: var(--text-secondary);
   padding-left: 1.05rem;
 }
 
 .servicePort {
-  font-size: 0.65rem;
-  color: var(--text-muted);
+  font-size: 0.72rem;
+  color: var(--text-tertiary);
   font-family: 'SF Mono', 'Fira Code', monospace;
   padding-left: 1.05rem;
 }
@@ -168,7 +168,7 @@
   background: var(--accent-light);
   padding: 0.25rem 0.6rem;
   border-radius: 100px;
-  border: 1px solid rgba(79, 70, 229, 0.15);
+  border: 1px solid rgba(232, 43, 46, 0.1);
 }
 
 /* ── Provider cards ───────────────────────────── */

@@ -1,36 +1,37 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
 
 :root {
+  /* ── Light Theme with Red Accent (synapt.ai-inspired) ── */
   --bg-primary: #ffffff;
-  --bg-secondary: #f8f9fb;
-  --bg-surface: #f1f3f5;
+  --bg-secondary: #f7f7f8;
+  --bg-surface: #f0f0f2;
   --bg-elevated: #ffffff;
-  --bg-accent-subtle: #eef2ff;
-  --border: #e2e5e9;
-  --border-light: #eef0f2;
-  --text-primary: #111827;
-  --text-secondary: #374151;
-  --text-tertiary: #6b7280;
-  --text-muted: #9ca3af;
-  --accent: #4f46e5;
-  --accent-hover: #4338ca;
-  --accent-light: #eef2ff;
-  --accent-text: #3730a3;
+  --bg-accent-subtle: rgba(232, 43, 46, 0.06);
+  --border: #e2e2e5;
+  --border-light: #ececee;
+  --text-primary: #111111;
+  --text-secondary: #3d3d3d;
+  --text-tertiary: #6d6d6d;
+  --text-muted: #8b8b8b;
+  --accent: #E82B2E;
+  --accent-hover: #cd2653;
+  --accent-light: rgba(232, 43, 46, 0.08);
+  --accent-text: #c0392b;
   --success: #059669;
-  --success-light: #ecfdf5;
+  --success-light: rgba(5, 150, 105, 0.08);
   --warning: #d97706;
-  --warning-light: #fffbeb;
+  --warning-light: rgba(217, 119, 6, 0.08);
   --error: #dc2626;
-  --error-light: #fef2f2;
-  --shadow-sm: 0 1px 2px rgba(0,0,0,0.05);
-  --shadow-md: 0 4px 6px -1px rgba(0,0,0,0.07), 0 2px 4px -2px rgba(0,0,0,0.05);
-  --shadow-lg: 0 10px 15px -3px rgba(0,0,0,0.08), 0 4px 6px -4px rgba(0,0,0,0.04);
-  --radius: 10px;
+  --error-light: rgba(220, 38, 38, 0.08);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.08);
+  --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.12);
+  --radius: 8px;
   --radius-sm: 6px;
-  --radius-lg: 14px;
+  --radius-lg: 12px;
 
   font-family: 'Inter', system-ui, -apple-system, sans-serif;
-  line-height: 1.5;
+  line-height: 1.55;
   font-weight: 400;
   color: var(--text-secondary);
   background-color: var(--bg-secondary);
@@ -74,6 +75,6 @@ body {
 }
 
 ::selection {
-  background: rgba(79, 70, 229, 0.15);
+  background: rgba(232, 43, 46, 0.15);
   color: var(--text-primary);
 }

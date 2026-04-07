@@ -5,6 +5,7 @@ from neo4j import AsyncGraphDatabase, AsyncDriver
 
 from config import settings
 from models import (
+    ContextProvider,
     ExtractedConcept,
     ExtractedNamedEntity,
     ExtractedProposition,
@@ -12,6 +13,7 @@ from models import (
     ExtractedTableSemantic,
     GraphNode,
     KnowledgeChunk,
+    ProviderStatus,
 )
 
 logger = logging.getLogger(__name__)
@@ -609,6 +611,137 @@ class GraphStore:
         }
 
     # ── Provider management ───────────────────────────
+
+    async def create_provider_node(self, provider: ContextProvider) -> None:
+        """Persist a Provider node in Neo4j."""
+        query = """
+        CREATE (p:Provider {
+            provider_id: $provider_id,
+            name: $name,
+            description: $description,
+            status: $status,
+            created_at: $created_at,
+            doc_count: $doc_count,
+            node_count: $node_count,
+            edge_count: $edge_count,
+            chunk_count: $chunk_count
+        })
+        """
+        async with self.driver.session() as session:
+            await session.run(
+                query,
+                provider_id=provider.provider_id,
+                name=provider.name,
+                description=provider.description,
+                status=provider.status.value,
+                created_at=provider.created_at.isoformat(),
+                doc_count=provider.doc_count,
+                node_count=provider.node_count,
+                edge_count=provider.edge_count,
+                chunk_count=provider.chunk_count,
+            )
+
+    async def get_provider(self, provider_id: str) -> ContextProvider | None:
+        """Load a single Provider node from Neo4j."""
+        query = """
+        MATCH (p:Provider {provider_id: $provider_id})
+        RETURN properties(p) AS props
+        """
+        async with self.driver.session() as session:
+            result = await session.run(query, provider_id=provider_id)
+            record = await result.single()
+            if not record:
+                return None
+            return self._provider_from_props(record["props"])
+
+    async def list_providers(self) -> list[ContextProvider]:
+        """Return all Provider nodes."""
+        query = """
+        MATCH (p:Provider)
+        RETURN properties(p) AS props
+        ORDER BY p.created_at
+        """
+        async with self.driver.session() as session:
+            result = await session.run(query)
+            records = await result.data()
+            return [self._provider_from_props(r["props"]) for r in records]
+
+    async def update_provider(self, provider_id: str, **fields) -> ContextProvider | None:
+        """Update fields on a Provider node. Returns the updated provider."""
+        set_clauses = []
+        params: dict = {"provider_id": provider_id}
+        for key, value in fields.items():
+            if value is not None:
+                set_clauses.append(f"p.{key} = ${key}")
+                if isinstance(value, ProviderStatus):
+                    params[key] = value.value
+                elif hasattr(value, "isoformat"):
+                    params[key] = value.isoformat()
+                else:
+                    params[key] = value
+        if not set_clauses:
+            return await self.get_provider(provider_id)
+
+        query = f"""
+        MATCH (p:Provider {{provider_id: $provider_id}})
+        SET {', '.join(set_clauses)}
+        RETURN properties(p) AS props
+        """
+        async with self.driver.session() as session:
+            result = await session.run(query, **params)
+            record = await result.single()
+            if not record:
+                return None
+            return self._provider_from_props(record["props"])
+
+    async def delete_provider_node(self, provider_id: str) -> None:
+        """Delete the Provider node itself (not the provider's data nodes)."""
+        query = """
+        MATCH (p:Provider {provider_id: $provider_id})
+        DETACH DELETE p
+        """
+        async with self.driver.session() as session:
+            await session.run(query, provider_id=provider_id)
+
+    async def provider_exists(self, provider_id: str) -> bool:
+        query = """
+        MATCH (p:Provider {provider_id: $provider_id})
+        RETURN count(p) > 0 AS exists
+        """
+        async with self.driver.session() as session:
+            result = await session.run(query, provider_id=provider_id)
+            record = await result.single()
+            return record["exists"]
+
+    @staticmethod
+    def _provider_from_props(props: dict) -> ContextProvider:
+        """Build a ContextProvider from Neo4j node properties."""
+        from datetime import datetime, UTC
+
+        created_at = props.get("created_at")
+        if isinstance(created_at, str):
+            created_at = datetime.fromisoformat(created_at)
+        else:
+            created_at = datetime.now(tz=UTC)
+
+        last_ingested_at = props.get("last_ingested_at")
+        if isinstance(last_ingested_at, str):
+            last_ingested_at = datetime.fromisoformat(last_ingested_at)
+        else:
+            last_ingested_at = None
+
+        return ContextProvider(
+            provider_id=props["provider_id"],
+            name=props.get("name", ""),
+            description=props.get("description", ""),
+            status=ProviderStatus(props.get("status", "ready")),
+            created_at=created_at,
+            doc_count=props.get("doc_count", 0),
+            node_count=props.get("node_count", 0),
+            edge_count=props.get("edge_count", 0),
+            chunk_count=props.get("chunk_count", 0),
+            last_ingested_at=last_ingested_at,
+        )
 
     async def delete_provider(self, provider_id: str) -> int:
         query = """

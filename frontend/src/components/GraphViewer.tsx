@@ -140,7 +140,7 @@ export default function GraphViewer({ reasoning }: Props) {
     ctx.font = `${isAnchor ? '600' : '500'} 3.5px Inter, sans-serif`
     ctx.textAlign = 'center'
     ctx.textBaseline = 'top'
-    ctx.fillStyle = '#374151'
+    ctx.fillStyle = '#3d3d3d'
     ctx.fillText(node.displayName, x, y + r + 3)
   }, [selected])
 
@@ -182,6 +182,7 @@ export default function GraphViewer({ reasoning }: Props) {
               ctx.fillStyle = color
               ctx.fill()
             }}
+            backgroundColor="rgba(0,0,0,0)"
             linkColor={(link: any) => link.color || '#d1d5db'}
             linkWidth={(link: any) => {
               if (!selected) return 1.2

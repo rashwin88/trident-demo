@@ -8,20 +8,20 @@
 .title {
   font-size: 0.8rem;
   font-weight: 600;
-  color: #71717a;
+  color: var(--text-tertiary);
   text-transform: uppercase;
   letter-spacing: 0.05em;
   padding: 0.75rem 1rem 0.5rem;
   margin: 0;
-  border-bottom: 1px solid #1c1c1f;
+  border-bottom: 1px solid var(--border-light);
   display: flex;
   align-items: center;
   gap: 0.5rem;
 }
 
 .count {
-  background: #27272a;
-  color: #a1a1aa;
+  background: var(--bg-surface);
+  color: var(--text-tertiary);
   font-size: 0.65rem;
   padding: 0.1rem 0.45rem;
   border-radius: 10px;
@@ -35,14 +35,14 @@
 }
 
 .empty {
-  color: #52525b;
+  color: var(--text-muted);
   font-size: 0.85rem;
   text-align: center;
   margin-top: 1.5rem;
 }
 
 .card {
-  border: 1px solid #27272a;
+  border: 1px solid var(--border);
   border-radius: 8px;
   margin-bottom: 0.5rem;
   cursor: pointer;
@@ -51,7 +51,7 @@
 }
 
 .card:hover {
-  border-color: #3f3f46;
+  border-color: var(--accent);
 }
 
 .header {
@@ -73,7 +73,7 @@
 }
 
 .primary {
-  color: #e4e4e7;
+  color: var(--text-primary);
   font-size: 0.825rem;
   flex: 1;
   overflow: hidden;
@@ -82,13 +82,13 @@
 }
 
 .chevron {
-  color: #52525b;
+  color: var(--text-muted);
   font-size: 0.75rem;
   flex-shrink: 0;
 }
 
 .props {
-  border-top: 1px solid #1c1c1f;
+  border-top: 1px solid var(--border-light);
   padding: 0.5rem 0.75rem;
   display: flex;
   flex-direction: column;
@@ -103,12 +103,12 @@
 }
 
 .propKey {
-  color: #71717a;
+  color: var(--text-tertiary);
   min-width: 90px;
   flex-shrink: 0;
 }
 
 .propVal {
-  color: #a1a1aa;
+  color: var(--text-secondary);
   word-break: break-word;
 }

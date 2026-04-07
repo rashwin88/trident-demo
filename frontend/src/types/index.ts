@@ -1,16 +1,27 @@
+export type ProviderStatus = 'ready' | 'ingesting' | 'error'
+
 export interface ContextProvider {
   provider_id: string
   name: string
   description: string
+  status: ProviderStatus
   created_at: string
   doc_count: number
   node_count: number
+  edge_count: number
+  chunk_count: number
+  last_ingested_at: string | null
 }
 
 export interface CreateProviderRequest {
   provider_id: string
   name: string
   description: string
+}
+
+export interface UpdateProviderRequest {
+  name?: string
+  description?: string
 }
 
 export type PipelineStage =

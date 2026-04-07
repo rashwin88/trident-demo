@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, useMemo } from 'react'
-import type { PipelineEvent, PipelineStage } from '../types'
+import type { PipelineStage } from '../types'
+import { useJobs } from '../context/JobContext'
 import styles from './PipelineLog.module.css'
 
 const STAGES_ORDERED: PipelineStage[] = ['parse', 'chunk', 'extract', 'resolve', 'store', 'done']
@@ -35,12 +36,22 @@ const STAGE_LABELS: Record<PipelineStage, string> = {
 }
 
 interface Props {
-  events: PipelineEvent[]
+  providerId: string | null
 }
 
-export default function PipelineLog({ events }: Props) {
+export default function PipelineLog({ providerId }: Props) {
   const endRef = useRef<HTMLDivElement>(null)
   const [expanded, setExpanded] = useState<Set<number>>(new Set())
+  const [selectedJobId, setSelectedJobId] = useState<string | null>(null)
+  const { getJobsForProvider } = useJobs()
+
+  const jobs = providerId ? getJobsForProvider(providerId) : []
+  const activeJob = selectedJobId
+    ? jobs.find((j) => j.id === selectedJobId)
+    : jobs.length > 0
+      ? jobs[jobs.length - 1]
+      : null
+  const events = activeJob?.events || []
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -55,7 +66,6 @@ export default function PipelineLog({ events }: Props) {
     })
   }
 
-  // Compute progress from events
   const { currentStage, isComplete, hasError } = useMemo(() => {
     if (events.length === 0) return { currentStage: null, isComplete: false, hasError: false }
     const lastEvent = events[events.length - 1]
@@ -66,7 +76,6 @@ export default function PipelineLog({ events }: Props) {
     }
   }, [events])
 
-  // Track per-chunk extraction progress
   const chunkProgress = useMemo(() => {
     const progressEvents = events.filter(
       (e) => e.detail && 'progress' in e.detail && e.detail.progress
@@ -87,7 +96,7 @@ export default function PipelineLog({ events }: Props) {
     return Math.round(((idx + 1) / STAGES_ORDERED.length) * 100)
   }, [currentStage, isComplete, hasError])
 
-  if (events.length === 0) {
+  if (jobs.length === 0) {
     return (
       <div className={styles.panel}>
         <h3 className={styles.title}>Pipeline Log</h3>
@@ -98,7 +107,22 @@ export default function PipelineLog({ events }: Props) {
 
   return (
     <div className={styles.panel}>
-      <h3 className={styles.title}>Pipeline Log</h3>
+      <div className={styles.titleRow}>
+        <h3 className={styles.title}>Pipeline Log</h3>
+        {jobs.length > 1 && (
+          <select
+            className={styles.jobSelect}
+            value={activeJob?.id || ''}
+            onChange={(e) => setSelectedJobId(e.target.value)}
+          >
+            {[...jobs].reverse().map((j) => (
+              <option key={j.id} value={j.id}>
+                {j.filename} ({j.status})
+              </option>
+            ))}
+          </select>
+        )}
+      </div>
 
       {/* Progress stepper */}
       <div className={styles.stepper}>
@@ -123,7 +147,7 @@ export default function PipelineLog({ events }: Props) {
         })}
       </div>
 
-      {/* Chunk progress (during extraction) */}
+      {/* Chunk progress */}
       {chunkProgress && (
         <div className={styles.chunkProgress}>
           <div className={styles.chunkLabel}>

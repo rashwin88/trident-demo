@@ -40,6 +40,18 @@ def _get_converter() -> DocumentConverter:
     return _converter
 
 
+def warm_up_converter() -> None:
+    """Pre-initialize the Docling converter and its ML models at startup.
+
+    The first PDF conversion triggers model loading (layout detection,
+    table structure) which can take 30-60s on CPU.  Calling this at
+    startup moves that cost out of the first user request.
+    """
+    logger.info("Warming up Docling PDF converter (loading ML models)...")
+    _get_converter()
+    logger.info("Docling converter ready")
+
+
 # ── Format mapping ────────────────────────────────────
 
 DOC_TYPE_TO_EXTENSION: dict[DocumentType, str] = {

@@ -28,6 +28,12 @@ class PipelineStage(str, Enum):
     ERROR = "error"
 
 
+class ProviderStatus(str, Enum):
+    READY = "ready"
+    INGESTING = "ingesting"
+    ERROR = "error"
+
+
 # ── Context Provider ─────────────────────────────────
 
 
@@ -35,9 +41,13 @@ class ContextProvider(BaseModel):
     provider_id: str
     name: str
     description: str
+    status: ProviderStatus = ProviderStatus.READY
     created_at: datetime = Field(default_factory=lambda: datetime.now(tz=UTC))
     doc_count: int = 0
     node_count: int = 0
+    edge_count: int = 0
+    chunk_count: int = 0
+    last_ingested_at: datetime | None = None
 
 
 # ── Ingestion ─────────────────────────────────────────

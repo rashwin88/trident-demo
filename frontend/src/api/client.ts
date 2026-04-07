@@ -1,6 +1,7 @@
 import type {
   ContextProvider,
   CreateProviderRequest,
+  UpdateProviderRequest,
   HealthResponse,
   PipelineEvent,
   ProviderStats,
@@ -34,11 +35,25 @@ export function fetchProviders(): Promise<ContextProvider[]> {
   return fetchJSON('/providers')
 }
 
+export function fetchProvider(providerId: string): Promise<ContextProvider> {
+  return fetchJSON(`/providers/${providerId}`)
+}
+
 export function createProvider(
   req: CreateProviderRequest
 ): Promise<ContextProvider> {
   return fetchJSON('/providers', {
     method: 'POST',
+    body: JSON.stringify(req),
+  })
+}
+
+export function updateProvider(
+  providerId: string,
+  req: UpdateProviderRequest
+): Promise<ContextProvider> {
+  return fetchJSON(`/providers/${providerId}`, {
+    method: 'PATCH',
     body: JSON.stringify(req),
   })
 }

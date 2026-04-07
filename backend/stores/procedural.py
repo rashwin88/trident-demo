@@ -131,6 +131,9 @@ class ProceduralStore:
             entries.append((entry, hit.score))
         return entries
 
+    def list_collections(self) -> list[str]:
+        return [c for c in utility.list_collections() if c.startswith("ps_")]
+
     def delete_provider(self, provider_id: str) -> None:
         name = self._collection_name(provider_id)
         if utility.has_collection(name):
