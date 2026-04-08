@@ -526,7 +526,14 @@ async def run_pipeline(
             )
             for chunk, emb in zip(chunks, embeddings)
         ]
-        knowledge_store.upsert_chunks(ks_entries, provider_id)
+        # Deduplicate by chunk_id (safety net against re-processed chunks)
+        seen_chunk_ids: set[str] = set()
+        unique_ks_entries = []
+        for e in ks_entries:
+            if e.chunk_id not in seen_chunk_ids:
+                seen_chunk_ids.add(e.chunk_id)
+                unique_ks_entries.append(e)
+        knowledge_store.upsert_chunks(unique_ks_entries, provider_id)
 
         # GN indexing already happened during Resolve stage (entities, concepts, procedures)
 

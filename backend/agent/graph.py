@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
-from langchain_openai import ChatOpenAI
+from langchain_openai import AzureChatOpenAI, ChatOpenAI
 from langgraph.graph import StateGraph, END
 from langgraph.prebuilt import ToolNode
 
@@ -101,12 +101,22 @@ class AgentState(TypedDict):
 def build_agent_graph():
     """Build and compile the LangGraph agent."""
 
-    llm = ChatOpenAI(
-        model=settings.LLM_MODEL,
-        api_key=settings.OPENAI_API_KEY,
-        temperature=0,
-        streaming=True,
-    )
+    if settings.LLM_PROVIDER == "azure":
+        llm = AzureChatOpenAI(
+            azure_deployment=settings.AZURE_OPENAI_DEPLOYMENT,
+            azure_endpoint=settings.AZURE_OPENAI_ENDPOINT,
+            api_key=settings.AZURE_OPENAI_API_KEY,
+            api_version=settings.AZURE_OPENAI_API_VERSION,
+            temperature=0,
+            streaming=True,
+        )
+    else:
+        llm = ChatOpenAI(
+            model=settings.LLM_MODEL,
+            api_key=settings.OPENAI_API_KEY,
+            temperature=0,
+            streaming=True,
+        )
     llm_with_tools = llm.bind_tools(ALL_TOOLS)
 
     async def call_model(state: AgentState) -> dict:

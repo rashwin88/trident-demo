@@ -11,6 +11,13 @@ def get_lm() -> dspy.LM:
                 f"openai/{settings.LLM_MODEL}",
                 api_key=settings.OPENAI_API_KEY,
             )
+        case "azure":
+            return dspy.LM(
+                f"azure/{settings.AZURE_OPENAI_DEPLOYMENT}",
+                api_key=settings.AZURE_OPENAI_API_KEY,
+                api_base=settings.AZURE_OPENAI_ENDPOINT,
+                api_version=settings.AZURE_OPENAI_API_VERSION,
+            )
         case "anthropic":
             return dspy.LM(
                 f"anthropic/{settings.LLM_MODEL}",

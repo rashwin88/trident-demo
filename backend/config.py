@@ -9,6 +9,12 @@ class Settings(BaseSettings):
     OPENAI_API_KEY: str = ""
     ANTHROPIC_API_KEY: str = ""
 
+    # Azure OpenAI
+    AZURE_OPENAI_API_KEY: str = ""
+    AZURE_OPENAI_ENDPOINT: str = ""
+    AZURE_OPENAI_API_VERSION: str = "2024-12-01-preview"
+    AZURE_OPENAI_DEPLOYMENT: str = ""
+
     # Embedding provider
     EMBEDDING_PROVIDER: str = "openai"  # openai | ollama
     OPENAI_EMBEDDING_MODEL: str = "text-embedding-3-small"
@@ -26,6 +32,8 @@ class Settings(BaseSettings):
     # Milvus
     MILVUS_HOST: str = "milvus"
     MILVUS_PORT: int = 19530
+    MILVUS_USER: str = ""
+    MILVUS_PASSWORD: str = ""
 
     # Chunking
     CHUNK_SIZE: int = 512

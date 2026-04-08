@@ -80,7 +80,7 @@ export default function StatusPanel() {
               name="Backend API"
               status={health ? 'healthy' : healthError ? 'unhealthy' : 'checking'}
               detail="FastAPI + DSPy"
-              port="8000"
+              port="8004"
             />
             <ServiceCard
               name="Neo4j"

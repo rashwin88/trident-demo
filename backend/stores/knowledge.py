@@ -27,6 +27,8 @@ class KnowledgeStore:
             alias="default",
             host=settings.MILVUS_HOST,
             port=settings.MILVUS_PORT,
+            user=settings.MILVUS_USER,
+            password=settings.MILVUS_PASSWORD,
         )
         self._connected = True
 
@@ -36,6 +38,8 @@ class KnowledgeStore:
                 alias="default",
                 host=settings.MILVUS_HOST,
                 port=settings.MILVUS_PORT,
+                user=settings.MILVUS_USER,
+                password=settings.MILVUS_PASSWORD,
             )
             return True
         except Exception:

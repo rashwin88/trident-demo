@@ -1,7 +1,7 @@
 from abc import ABC, abstractmethod
 
 import httpx
-from openai import OpenAI
+from openai import AzureOpenAI, OpenAI
 
 from config import settings
 
@@ -20,23 +20,28 @@ class EmbeddingProvider(ABC):
 
 class OpenAIEmbeddingProvider(EmbeddingProvider):
     def __init__(self) -> None:
-        self._client = OpenAI(api_key=settings.OPENAI_API_KEY)
+        if settings.EMBEDDING_PROVIDER == "azure":
+            self._client = AzureOpenAI(
+                api_key=settings.AZURE_OPENAI_API_KEY,
+                azure_endpoint=settings.AZURE_OPENAI_ENDPOINT,
+                api_version=settings.AZURE_OPENAI_API_VERSION,
+            )
+        else:
+            self._client = OpenAI(api_key=settings.OPENAI_API_KEY)
         self._model = settings.OPENAI_EMBEDDING_MODEL
 
     def embed(self, text: str) -> list[float]:
-        resp = self._client.embeddings.create(
-            input=text,
-            model=self._model,
-            dimensions=settings.EMBEDDING_DIM,
-        )
+        kwargs = dict(input=text, model=self._model)
+        if settings.EMBEDDING_PROVIDER != "azure":
+            kwargs["dimensions"] = settings.EMBEDDING_DIM
+        resp = self._client.embeddings.create(**kwargs)
         return resp.data[0].embedding
 
     def embed_batch(self, texts: list[str]) -> list[list[float]]:
-        resp = self._client.embeddings.create(
-            input=texts,
-            model=self._model,
-            dimensions=settings.EMBEDDING_DIM,
-        )
+        kwargs = dict(input=texts, model=self._model)
+        if settings.EMBEDDING_PROVIDER != "azure":
+            kwargs["dimensions"] = settings.EMBEDDING_DIM
+        resp = self._client.embeddings.create(**kwargs)
         return [item.embedding for item in sorted(resp.data, key=lambda x: x.index)]
 
 
@@ -67,7 +72,7 @@ def get_embedding_provider() -> EmbeddingProvider:
     global _provider
     if _provider is None:
         match settings.EMBEDDING_PROVIDER:
-            case "openai":
+            case "openai" | "azure":
                 _provider = OpenAIEmbeddingProvider()
             case "ollama":
                 _provider = OllamaEmbeddingProvider()

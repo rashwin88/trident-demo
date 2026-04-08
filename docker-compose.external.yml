@@ -15,30 +15,46 @@ services:
       context: ./backend
       dockerfile: Dockerfile
     ports:
-      - "8000:8000"
+      - "8004:8004"
     env_file:
-      - .env.external
+      - .env
     volumes:
       - ./backend:/app
     mem_limit: 1g
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:8004/health"]
       interval: 15s
       timeout: 5s
       retries: 5
       start_period: 60s
 
+  # ── UI_synapt ───────────────────────────────────────
+  #ui_synapt:
+  #  build:
+  #    context: ../myagent/UI_synapt
+  #    dockerfile: Dockerfile
+  #    args:
+  # 👇 THIS IS THE CRITICAL FIX
+  #      - VITE_API_BASE_URL=http://10.126.140.7:8004
+  # ports:
+  #    - "5174:5174"
+  #  environment:
+  #    - NODE_ENV=production
+  #  restart: unless-stopped
+  #  depends_on:
+  #    - backend
+
   # ── Frontend ────────────────────────────────────────
   frontend:
-    build:
-      context: ./frontend
-      dockerfile: Dockerfile
-    ports:
-      - "5173:5173"
-    volumes:
-      - ./frontend/src:/app/src
-      - ./frontend/index.html:/app/index.html
-      - ./frontend/vite.config.ts:/app/vite.config.ts
-    depends_on:
-      - backend
-    mem_limit: 512m
+     build:
+       context: ./frontend
+       dockerfile: Dockerfile
+     ports:
+       - "5174:5174"
+     volumes:
+       - ./frontend/src:/app/src
+       - ./frontend/index.html:/app/index.html
+       - ./frontend/vite.config.ts:/app/vite.config.ts
+     depends_on:
+       - backend
+     mem_limit: 512m

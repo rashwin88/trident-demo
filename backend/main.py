@@ -61,22 +61,51 @@ async def lifespan(app: FastAPI):
 
 # ── App ───────────────────────────────────────────────
 
+
 app = FastAPI(
     title="Trident Context Substrate",
     version="0.1.0",
     lifespan=lifespan,
 )
 
+# ── Disable ETag/Last-Modified and force no-cache ──
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.responses import Response
+
+class NoCacheHeadersMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request, call_next):
+        response: Response = await call_next(request)
+        for h in ["etag", "last-modified"]:
+            try:
+                del response.headers[h]
+            except KeyError:
+                pass
+        response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, proxy-revalidate"
+        response.headers["Pragma"] = "no-cache"
+        response.headers["Expires"] = "0"
+        response.headers["Surrogate-Control"] = "no-store"
+        return response
+
+app.add_middleware(NoCacheHeadersMiddleware)
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
+    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173", "http://10.126.140.7:5173"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# ── Mount routers ─────────────────────────────────────
 
+# ── Serve React static build ──────────────────────────
+from fastapi.staticfiles import StaticFiles
+import os
+
+ui_dist_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../myagent/UI_synapt/dist'))
+if os.path.exists(ui_dist_path):
+    app.mount("/", StaticFiles(directory=ui_dist_path, html=True), name="ui")
+
+# ── Mount routers ─────────────────────────────────────
 from routers.health import router as health_router
 from routers.providers import router as providers_router
 from routers.ingest import router as ingest_router

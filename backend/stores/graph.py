@@ -332,20 +332,18 @@ class GraphStore:
             logger.warning(f"Invalid edge type '{edge_type}', skipping")
             return
 
-        # Use APOC to create relationship with dynamic type
-        query = """
-        MATCH (src {provider_id: $provider_id})
+        # edge_type is validated against EDGE_VOCABULARY above — safe to interpolate
+        query = f"""
+        MATCH (src {{provider_id: $provider_id}})
         WHERE src.label = $src_label OR src.name = $src_label
-        MATCH (tgt {provider_id: $provider_id})
+        MATCH (tgt {{provider_id: $provider_id}})
         WHERE tgt.label = $tgt_label OR tgt.name = $tgt_label
-        CALL apoc.create.relationship(src, $edge_type, {}, tgt) YIELD rel
-        RETURN rel
+        MERGE (src)-[:{edge_type}]->(tgt)
         """
         async with self.driver.session() as session:
             await session.run(
                 query,
                 src_label=src_label,
-                edge_type=edge_type,
                 tgt_label=tgt_label,
                 provider_id=provider_id,
             )
@@ -429,10 +427,10 @@ class GraphStore:
     async def get_neighbourhood(
         self, node_ids: list[str], hops: int, provider_id: str
     ) -> list[GraphNode]:
-        query = """
+        # hops is an int controlled internally — safe to interpolate for variable-length path
+        query = f"""
         MATCH (start) WHERE elementId(start) IN $node_ids
-        CALL apoc.path.subgraphNodes(start, {maxLevel: $hops})
-        YIELD node
+        MATCH (start)-[*0..{hops}]-(node)
         WHERE node.provider_id = $provider_id
         RETURN DISTINCT elementId(node) AS node_id,
                labels(node)[0] AS label,
@@ -442,7 +440,6 @@ class GraphStore:
             result = await session.run(
                 query,
                 node_ids=node_ids,
-                hops=hops,
                 provider_id=provider_id,
             )
             records = await result.data()
@@ -461,36 +458,37 @@ class GraphStore:
         """Return both nodes AND edges for the reasoning subgraph."""
         from models import GraphEdge
 
+        # hops is an int controlled internally — safe to interpolate for variable-length path
         # Get nodes
-        node_query = """
+        node_query = f"""
         MATCH (start) WHERE elementId(start) IN $node_ids
-        CALL apoc.path.subgraphNodes(start, {maxLevel: $hops})
-        YIELD node
+        MATCH (start)-[*0..{hops}]-(node)
         WHERE node.provider_id = $provider_id
         RETURN DISTINCT elementId(node) AS node_id,
                labels(node)[0] AS label,
                properties(node) AS props
         """
-        # Get edges between those nodes
-        edge_query = """
+        # Get edges between the subgraph nodes
+        edge_query = f"""
         MATCH (start) WHERE elementId(start) IN $node_ids
-        CALL apoc.path.subgraphAll(start, {maxLevel: $hops})
-        YIELD nodes, relationships
-        UNWIND relationships AS r
-        WITH r, startNode(r) AS src, endNode(r) AS tgt
-        WHERE src.provider_id = $provider_id AND tgt.provider_id = $provider_id
+        MATCH (start)-[*0..{hops}]-(node)
+        WHERE node.provider_id = $provider_id
+        WITH COLLECT(DISTINCT node) AS subgraph_nodes
+        UNWIND subgraph_nodes AS src
+        MATCH (src)-[r]->(tgt)
+        WHERE tgt IN subgraph_nodes AND src.provider_id = $provider_id
         RETURN DISTINCT elementId(src) AS source,
                elementId(tgt) AS target,
                type(r) AS edge_type
         """
         async with self.driver.session() as session:
             node_result = await session.run(
-                node_query, node_ids=node_ids, hops=hops, provider_id=provider_id
+                node_query, node_ids=node_ids, provider_id=provider_id
             )
             node_records = await node_result.data()
 
             edge_result = await session.run(
-                edge_query, node_ids=node_ids, hops=hops, provider_id=provider_id
+                edge_query, node_ids=node_ids, provider_id=provider_id
             )
             edge_records = await edge_result.data()
 
