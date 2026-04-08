@@ -72,18 +72,34 @@ export function fetchProviderStats(
 
 // ── Ingest ────────────────────────────────────────────
 
+export interface IngestOptions {
+  providerId: string
+  docType: string
+  file?: File
+  url?: string
+  crawlDepth?: number
+  density?: string
+}
+
 export function ingestDocument(
-  providerId: string,
-  docType: string,
-  file: File,
+  options: IngestOptions,
   onEvent: (event: PipelineEvent) => void,
   onError: (error: string) => void,
   onDone: () => void
 ): () => void {
   const formData = new FormData()
-  formData.append('provider_id', providerId)
-  formData.append('doc_type', docType)
-  formData.append('file', file)
+  formData.append('provider_id', options.providerId)
+  formData.append('doc_type', options.docType)
+  formData.append('density', options.density || 'medium')
+  if (options.file) {
+    formData.append('file', options.file)
+  }
+  if (options.url) {
+    formData.append('url', options.url)
+  }
+  if (options.crawlDepth != null) {
+    formData.append('crawl_depth', String(options.crawlDepth))
+  }
 
   // Use fetch + ReadableStream for SSE (EventSource doesn't support POST)
   const controller = new AbortController()
@@ -157,6 +173,24 @@ export interface NodeDetail {
   }>
 }
 
+export interface SearchHit {
+  node_key: string
+  node_type: string
+  text: string
+  score: number
+}
+
+export function searchNodes(
+  providerId: string,
+  query: string,
+  nodeType?: string,
+  topK: number = 20
+): Promise<SearchHit[]> {
+  const params = new URLSearchParams({ q: query, top_k: String(topK) })
+  if (nodeType) params.set('node_type', nodeType)
+  return fetchJSON(`/providers/${providerId}/search?${params}`)
+}
+
 export function fetchGraph(providerId: string): Promise<GraphData> {
   return fetchJSON(`/providers/${providerId}/graph`)
 }
@@ -172,4 +206,84 @@ export function queryProvider(req: QueryRequest): Promise<QueryResponse> {
     method: 'POST',
     body: JSON.stringify(req),
   })
+}
+
+// ── Agent ─────────────────────────────────────────────
+
+export interface AgentStep {
+  type: 'conversation_id' | 'tool_call' | 'tool_result' | 'answer' | 'error' | 'done'
+  content?: string
+  tool?: string
+  args?: Record<string, unknown>
+  result?: unknown
+  entities_referenced?: string[]
+  conversation_id?: string
+}
+
+export function agentChat(
+  providerId: string,
+  message: string,
+  conversationId: string | null,
+  systemPrompt: string,
+  onStep: (step: AgentStep) => void,
+  onError: (error: string) => void,
+  onDone: () => void,
+): () => void {
+  const controller = new AbortController()
+
+  fetch(`${BASE}/agent/chat`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      provider_id: providerId,
+      message,
+      conversation_id: conversationId,
+      system_prompt: systemPrompt,
+    }),
+    signal: controller.signal,
+  })
+    .then(async (res) => {
+      if (!res.ok || !res.body) {
+        onError(`Agent request failed: ${res.status}`)
+        return
+      }
+
+      const reader = res.body.getReader()
+      const decoder = new TextDecoder()
+      let buffer = ''
+
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+
+        buffer += decoder.decode(value, { stream: true })
+        const lines = buffer.split('\n')
+        buffer = lines.pop() || ''
+
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            try {
+              const step: AgentStep = JSON.parse(line.slice(6))
+              onStep(step)
+              if (step.type === 'done' || step.type === 'error') {
+                onDone()
+                return
+              }
+            } catch {
+              // skip
+            }
+          }
+        }
+      }
+      onDone()
+    })
+    .catch((err) => {
+      if (err.name !== 'AbortError') onError(err.message)
+    })
+
+  return () => controller.abort()
+}
+
+export function deleteConversation(conversationId: string): Promise<{ deleted: boolean }> {
+  return fetchJSON(`/agent/conversations/${conversationId}`, { method: 'DELETE' })
 }

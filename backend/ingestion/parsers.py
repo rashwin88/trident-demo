@@ -60,6 +60,7 @@ DOC_TYPE_TO_EXTENSION: dict[DocumentType, str] = {
     DocumentType.SOP: ".md",
     DocumentType.CSV: ".csv",
     DocumentType.DDL: ".md",  # DDL is plain text, use Markdown path
+    DocumentType.WEB: ".html",
 }
 
 
@@ -79,6 +80,16 @@ def _convert_bytes(
         result = converter.convert_string(
             content=text,
             format=InputFormat.MD,
+            name=filename,
+        )
+        return result.document
+
+    # For HTML (web pages), use convert_string with HTML format
+    if doc_type == DocumentType.WEB:
+        html = content.decode("utf-8")
+        result = converter.convert_string(
+            content=html,
+            format=InputFormat.HTML,
             name=filename,
         )
         return result.document
@@ -112,6 +123,8 @@ def parse_document(
         metadata["page_count"] = doc.num_pages() if hasattr(doc, "num_pages") else 0
     elif doc_type == DocumentType.CSV:
         metadata["row_count"] = text.count("\n")
+    elif doc_type == DocumentType.WEB:
+        metadata["source_type"] = "web"
 
     metadata["char_count"] = len(text)
 

@@ -81,8 +81,10 @@ from routers.health import router as health_router
 from routers.providers import router as providers_router
 from routers.ingest import router as ingest_router
 from routers.query import router as query_router
+from routers.agent import router as agent_router
 
 app.include_router(health_router)
 app.include_router(providers_router)
 app.include_router(ingest_router)
 app.include_router(query_router)
+app.include_router(agent_router)

@@ -131,6 +131,31 @@ class ProceduralStore:
             entries.append((entry, hit.score))
         return entries
 
+    def list_all(self, provider_id: str) -> list[ProceduralStoreEntry]:
+        """List all procedures for a provider (no vector search)."""
+        name = self._collection_name(provider_id)
+        if not utility.has_collection(name):
+            return []
+
+        col = Collection(name)
+        col.load()
+        results = col.query(
+            expr=f'provider_id == "{provider_id}"',
+            output_fields=["procedure_id", "provider_id", "name", "intent", "steps_json"],
+            limit=100,
+        )
+        return [
+            ProceduralStoreEntry(
+                procedure_id=r["procedure_id"],
+                provider_id=r["provider_id"],
+                name=r["name"],
+                intent=r["intent"],
+                steps_json=r["steps_json"],
+                embedding=[],  # not returned on list
+            )
+            for r in results
+        ]
+
     def list_collections(self) -> list[str]:
         return [c for c in utility.list_collections() if c.startswith("ps_")]
 

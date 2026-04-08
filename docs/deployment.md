@@ -156,7 +156,7 @@ docker compose -f docker-compose.external.yml --env-file .env.external restart b
 
 The key is used for:
 - **Embeddings** (when `EMBEDDING_PROVIDER=openai`) — text-embedding-3-small by default
-- **LLM** (when `LLM_PROVIDER=openai`) — for entity/concept extraction via DSPy
+- **LLM** (when `LLM_PROVIDER=openai`) — for unified knowledge extraction via DSPy
 
 ### Switching LLM provider entirely
 
@@ -223,6 +223,8 @@ No data migration is needed — API keys only affect outbound API calls, not sto
 | `MILVUS_PORT` | `19530` | Milvus gRPC port |
 | `CHUNK_SIZE` | `512` | Target chunk size in tokens |
 | `CHUNK_OVERLAP` | `64` | Overlap between adjacent chunks in tokens |
+| `EXTRACTION_DENSITY` | `medium` | Default extraction density per chunk: `low`, `medium`, or `high`. Can be overridden per-ingest via the `density` form field. |
+| `EXTRACTION_CONCURRENCY` | `4` | Number of parallel LLM calls for chunk extraction (ThreadPoolExecutor workers) |
 
 ---
 

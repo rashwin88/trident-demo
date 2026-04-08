@@ -39,6 +39,7 @@ class TestDocumentType:
             DocumentType.CSV,
             DocumentType.SOP,
             DocumentType.DDL,
+            DocumentType.WEB,
         }
 
     def test_string_values(self):
@@ -304,19 +305,27 @@ class TestQueryRequest:
 
 class TestQueryResponse:
     def test_full_response(self):
+        from models import ReasoningSubgraph, GraphEdge
+
+        node = GraphNode(
+            node_id="n1",
+            label="Entity",
+            properties={"name": "CID-44821"},
+            relevance=0.95,
+        )
         r = QueryResponse(
             answer="The bandwidth is 100 Mbps.",
-            graph_nodes=[
-                GraphNode(
-                    node_id="n1",
-                    label="Entity",
-                    properties={"name": "CID-44821"},
-                    relevance=0.95,
-                )
-            ],
+            reasoning_subgraph=ReasoningSubgraph(
+                nodes=[node],
+                edges=[GraphEdge(source="n1", target="n2", edge_type="RELATED_TO")],
+                anchor_node_ids=["n1"],
+            ),
+            graph_nodes=[node],
             chunks_used=["c1", "c2"],
             procedures=["Circuit Decommission"],
             provider_id="p1",
         )
         assert len(r.graph_nodes) == 1
         assert r.graph_nodes[0].relevance == 0.95
+        assert len(r.reasoning_subgraph.edges) == 1
+        assert r.reasoning_subgraph.anchor_node_ids == ["n1"]

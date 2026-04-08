@@ -57,27 +57,18 @@ async def execute_query(
             f"{len(relevant_hits)} above threshold ({GRAPH_ANCHOR_THRESHOLD})"
         )
 
-        # Resolve node_keys back to Neo4j labels for graph anchoring
-        entity_labels = []
-        concept_names = []
+        # Use neo4j_id directly from GN hits — no fuzzy lookup needed
         for h in relevant_hits:
-            key = h["node_key"]
-            if key.startswith("entity:"):
-                entity_labels.append(key.removeprefix("entity:"))
-            elif key.startswith("concept:"):
-                concept_names.append(key.removeprefix("concept:"))
-            elif key.startswith("procedure:"):
-                entity_labels.append(key.removeprefix("procedure:"))
-            elif key.startswith("step:"):
-                # Include step description as context but don't anchor
-                pass
-
-        if entity_labels or concept_names:
-            all_labels = entity_labels + concept_names
-            anchor_nodes = await graph.fuzzy_find_entities(all_labels, provider_id)
+            neo4j_id = h.get("neo4j_id")
+            if neo4j_id:
+                anchor_nodes.append(GraphNode(
+                    node_id=neo4j_id,
+                    label=h["node_type"],
+                    properties={"text": h["text"], "node_key": h["node_key"]},
+                    relevance=h["score"],
+                ))
     else:
-        # Fallback: string-match anchoring (old behaviour)
-        logger.info("No graph node index — falling back to string match")
+        logger.info("No graph node index available")
 
     logger.info(f"Anchored to {len(anchor_nodes)} graph nodes")
 

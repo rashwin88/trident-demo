@@ -2,21 +2,21 @@
 
 ## System Overview
 
-Trident is a context substrate layer that ingests documents, extracts structured knowledge, and vends answers grounded in four complementary stores.
+Trident is a context substrate layer that ingests documents (files and web pages), extracts structured knowledge, and vends answers grounded in four complementary stores. It includes a LangGraph-based agent with composable tools for interactive exploration.
 
 ```
-┌──────────────┐     ┌──────────────────────────────────────────────┐
-│   Frontend   │     │                  Backend                     │
-│  React/Vite  │────▶│               FastAPI + DSPy                 │
-│  :5173       │     │                  :8000                       │
-└──────────────┘     └────┬──────────┬──────────┬──────────┬────────┘
+┌──────────────┐     ┌──────────────────────────────────────────────────┐
+│   Frontend   │     │                    Backend                       │
+│  React/Vite  │────▶│          FastAPI + DSPy + LangGraph Agent        │
+│  :5173       │     │                    :8000                         │
+└──────────────┘     └────┬──────────┬──────────┬──────────┬────────────┘
                           │          │          │          │
                           ▼          ▼          ▼          ▼
                    ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐
                    │  Neo4j   │ │ Milvus   │ │ Milvus   │ │  OpenAI  │
                    │ Concept  │ │ KS + PS  │ │ GN Index │ │ Embed +  │
-                   │ Graph    │ │ Vectors  │ │ Vectors  │ │ LLM      │
-                   │ :7687    │ │ :19530   │ │ :19530   │ │(external)│
+                   │ Graph    │ │ Vectors  │ │ (neo4j_id│ │ LLM      │
+                   │ :7687    │ │ :19530   │ │  linkage)│ │(external)│
                    └──────────┘ └──────────┘ └──────────┘ └──────────┘
 ```
 
@@ -27,7 +27,7 @@ Trident is a context substrate layer that ingests documents, extracts structured
 | **Concept Graph** | Neo4j | Entities, concepts, relationships, propositions, procedure DAGs | Nodes scoped by `provider_id` property |
 | **Knowledge Store (KS)** | Milvus | Document chunk embeddings for semantic search | `ks_{provider_id}` collection per provider |
 | **Procedural Store (PS)** | Milvus | Procedure intent embeddings for SOP retrieval | `ps_{provider_id}` collection per provider |
-| **Graph Node Index (GN)** | Milvus | Entity/concept/procedure/step label embeddings for semantic graph search | `gn_{provider_id}` collection per provider |
+| **Graph Node Index (GN)** | Milvus | Embedding signatures for all nodes with `neo4j_id` — serves dual purpose: deduplication during ingestion (semantic resolution) + anchor search during query. Each GN entry stores the Neo4j element ID, creating a direct vector-to-graph link with no fuzzy lookup needed. | `gn_{provider_id}` collection per provider |
 
 ## Data Flow — Ingestion
 
@@ -36,6 +36,7 @@ sequenceDiagram
     participant U as User
     participant FE as Frontend
     participant API as FastAPI
+    participant WF as WebFetcher
     participant P as Pipeline
     participant LLM as LLM (DSPy)
     participant EMB as Embedding Provider
@@ -44,11 +45,22 @@ sequenceDiagram
     participant PS as Milvus PS
     participant GN as Milvus GN
 
-    U->>FE: Upload document
-    FE->>API: POST /ingest (multipart)
-    API->>P: run_pipeline()
+    U->>FE: Upload document or enter URL
+    alt File upload
+        FE->>API: POST /ingest (multipart: file, doc_type, density)
+    else Web ingestion
+        FE->>API: POST /ingest (url, crawl_depth, density, doc_type=web)
+        API->>WF: fetch_with_crawl(url, depth)
+        WF-->>API: FetchedPage[] (max 20, same-domain)
+    end
+    API->>P: run_pipeline() per page/file
 
     Note over P: Stage 1 — Parse (Docling)
+    alt WEB document
+        P->>P: Docling convert_string(html, format=HTML)
+    else File document
+        P->>P: Docling convert (PDF/CSV) or convert_string (TEXT/SOP/DDL)
+    end
     P-->>FE: SSE: {stage: parse}
 
     Note over P: Stage 2 — Chunk
@@ -59,34 +71,54 @@ sequenceDiagram
     end
     P-->>FE: SSE: {stage: chunk, detail: {count: N}}
 
-    Note over P: Stage 3 — Extract
+    Note over P: Stage 3 — Extract (Unified, Parallel)
     alt SOP document
         P->>LLM: ProcedureSignature(full_text)
         LLM-->>P: Procedure + steps
     else Other documents
-        loop Each chunk
-            P->>LLM: Extract entities, concepts, relations, propositions
-            LLM-->>P: Structured JSON
+        P->>P: ThreadPoolExecutor (EXTRACTION_CONCURRENCY workers)
+        par Parallel chunk extraction
+            P->>LLM: UnifiedExtractionSignature(chunk_1)
+            P->>LLM: UnifiedExtractionSignature(chunk_2)
+            P->>LLM: UnifiedExtractionSignature(chunk_N)
         end
+        LLM-->>P: Single JSON per chunk: {entities[], concepts[], relationships[], propositions[]}
     end
     P-->>FE: SSE: {stage: extract}
 
-    Note over P: Stage 4 — Resolve
-    P->>G: Deduplicate entities (case-insensitive)
+    Note over P: Stage 4 — Resolve (Semantic)
+    P->>EMB: Embed entity label+description
+    P->>GN: Cosine search for existing match (threshold 0.85)
+    alt Match above threshold — neo4j_id comes from GN hit
+        P->>P: Reuse existing entity (neo4j_id from GN, no fuzzy lookup)
+    else No match
+        P->>G: merge_entity (create new) → returns neo4j_id
+        P->>GN: Index new entity with neo4j_id immediately
+    end
+    P->>EMB: Embed concept name+definition+aliases
+    P->>GN: Cosine search for existing match (threshold 0.82)
+    alt Match above threshold — neo4j_id comes from GN hit
+        P->>P: Reuse existing concept (neo4j_id from GN, no fuzzy lookup)
+    else No match
+        P->>G: merge_concept (create new) → returns neo4j_id
+        P->>GN: Index new concept with neo4j_id immediately
+    end
+    Note over P: Procedure indexing deferred to Store stage (needs neo4j_ids from DAG creation)
     P-->>FE: SSE: {stage: resolve}
 
     Note over P: Stage 5 — Store
-    P->>G: Create nodes + edges
+    P->>G: Create Document + Chunk nodes + edges
+    P->>G: Create Proposition nodes + relationship edges
     opt SOP document — Procedure DAG
-        P->>G: Procedure → Step nodes + HAS_STEP + PRECEDES edges
+        P->>G: create_procedure_dag() → (proc_node_id, step_ids)
         P->>G: Step → Entity REFERENCES edges
         P->>EMB: Embed procedure intent
         P->>PS: Upsert procedure
+        P->>GN: Index procedure + steps with neo4j_ids (batch)
     end
     P->>EMB: Embed chunk texts
     P->>KS: Upsert chunks + embeddings
-    P->>EMB: Embed entity/concept/procedure/step labels
-    P->>GN: Upsert graph node index
+    Note over P: Entity/concept GN indexing already done in Resolve stage
     P-->>FE: SSE: {stage: store}
     P-->>FE: SSE: {stage: done}
 ```
@@ -112,12 +144,12 @@ sequenceDiagram
 
     QE->>EMB: Embed question
     QE->>GN: Semantic search graph node index (top_k=10)
-    GN-->>QE: Hits with scores (entity/concept/procedure/step)
+    GN-->>QE: Hits with scores + neo4j_id (entity/concept/procedure/step)
 
-    QE->>G: fuzzy_find_entities(labels from GN hits)
-    G-->>QE: Anchor nodes
+    Note over QE: neo4j_id comes directly from GN — no fuzzy_find_entities needed
+    QE->>QE: Filter hits by score >= 0.4, use neo4j_id as anchor
 
-    QE->>G: get_reasoning_subgraph(anchors, hops)
+    QE->>G: get_reasoning_subgraph(anchor neo4j_ids, hops)
     G-->>QE: Nodes + edges (ReasoningSubgraph)
 
     QE->>KS: ANN search (top_k chunks)
@@ -133,6 +165,70 @@ sequenceDiagram
     API-->>FE: {answer, reasoning_subgraph, graph_nodes, chunks_used, procedures}
     FE->>U: Display answer + reasoning subgraph with anchor highlighting
 ```
+
+## LangGraph Agent
+
+Trident includes a LangGraph-based conversational agent (`backend/agent/`) that uses composable tools to interactively explore and modify the knowledge graph. The agent runs as a `StateGraph` with an agent-to-tools loop.
+
+### Architecture
+
+```
+backend/agent/
+├── tools.py     — 9 tools (6 read + 3 write) wrapping Trident stores directly
+├── graph.py     — LangGraph StateGraph: agent → tools → agent loop
+├── memory.py    — In-memory conversation store with sliding window (default 20 messages)
+└── (routers/agent.py) — POST /agent/chat (SSE), DELETE/GET /agent/conversations
+```
+
+### Tools
+
+| Tool | Type | Purpose |
+|------|------|---------|
+| `trident_search` | Read | Semantic search across GN — returns `neo4j_id` directly |
+| `trident_get_node` | Read | Inspect a node + neighbours (enriches chunk text from KS) |
+| `trident_traverse` | Read | Walk the graph with edge/node type filtering |
+| `trident_get_chunks` | Read | Semantic search over document text in KS |
+| `trident_get_procedures` | Read | Search or list structured procedures from PS |
+| `trident_get_stats` | Read | Node/edge/chunk counts for a provider |
+| `trident_create_entity` | Write | Create + index a new entity |
+| `trident_create_concept` | Write | Create + index a new concept |
+| `trident_create_relationship` | Write | Create an edge between existing nodes |
+
+### Agent Flow
+
+```mermaid
+sequenceDiagram
+    participant U as User
+    participant FE as AgentPanel
+    participant API as POST /agent/chat
+    participant AG as LangGraph Agent
+    participant T as Tool Node
+    participant S as Trident Stores
+
+    U->>FE: Send message
+    FE->>API: ChatRequest (provider_id, message, conversation_id)
+    API-->>FE: SSE: {type: conversation_id}
+
+    loop Agent reasoning loop
+        AG->>AG: Decide next action
+        alt Needs data
+            AG->>T: tool_call (e.g. trident_search)
+            API-->>FE: SSE: {type: tool_call, tool, args}
+            T->>S: Direct method call (no HTTP)
+            S-->>T: Result
+            T-->>AG: Tool result
+            API-->>FE: SSE: {type: tool_result, tool, result}
+        else Ready to answer
+            AG->>AG: Generate final answer
+            API-->>FE: SSE: {type: answer, content}
+        end
+    end
+    API-->>FE: SSE: {type: done}
+```
+
+### Memory
+
+Conversations use a sliding window (configurable `window_size`, default 20). Past messages are injected as a summary in the system prompt to avoid replaying `tool_calls`/`ToolMessages` that break the OpenAI API. The `ConversationStore` is in-memory, keyed by `conversation_id`.
 
 ## Provider Management
 
@@ -158,13 +254,17 @@ No cross-provider queries in the prototype.
 
 ## Async UI
 
-The frontend uses a non-blocking architecture. See [async-ui.md](async-ui.md) for details.
+The frontend uses a non-blocking architecture with a collapsible sidebar layout. See [async-ui.md](async-ui.md) for details.
 
+- Six tabs: Providers, Ingest, Graph, Query, Agent, Status
 - All tabs stay mounted (CSS visibility, not conditional rendering)
 - Global `JobContext` manages ingestion jobs across tab switches
 - Multi-file upload with per-provider sequential processing
+- Web ingestion mode with crawl depth control
+- Per-ingest density override (low/medium/high)
+- Agent tab with SSE-streamed reasoning trace
 - Toast notifications for background job completions
-- Activity indicators in the tab bar
+- Activity indicators in the sidebar
 
 ## Docker Compose Services
 

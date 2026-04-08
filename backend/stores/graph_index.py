@@ -1,7 +1,7 @@
 """Milvus-backed semantic index over graph nodes.
 
-Each entity/concept/procedure gets embedded by its label+description
-so the query engine can find semantically relevant graph anchors.
+Each node stores its Neo4j element ID alongside the embedding,
+creating a direct link between the vector index and the graph.
 Collection per provider: gn_{provider_id}
 """
 
@@ -35,6 +35,7 @@ class GraphNodeIndex:
 
         fields = [
             FieldSchema("node_key", DataType.VARCHAR, is_primary=True, max_length=256),
+            FieldSchema("neo4j_id", DataType.VARCHAR, max_length=128),
             FieldSchema("node_type", DataType.VARCHAR, max_length=32),
             FieldSchema("text", DataType.VARCHAR, max_length=2048),
             FieldSchema("embedding", DataType.FLOAT_VECTOR, dim=settings.EMBEDDING_DIM),
@@ -57,6 +58,7 @@ class GraphNodeIndex:
         self,
         provider_id: str,
         node_key: str,
+        neo4j_id: str,
         node_type: str,
         text: str,
     ) -> None:
@@ -66,6 +68,7 @@ class GraphNodeIndex:
         embedding = embedder.embed(text)
         col.upsert([{
             "node_key": node_key,
+            "neo4j_id": neo4j_id,
             "node_type": node_type,
             "text": text[:2048],
             "embedding": embedding,
@@ -78,7 +81,7 @@ class GraphNodeIndex:
     ) -> int:
         """Embed and upsert a batch of nodes.
 
-        Each dict must have: node_key, node_type, text
+        Each dict must have: node_key, neo4j_id, node_type, text
         """
         if not nodes:
             return 0
@@ -91,6 +94,7 @@ class GraphNodeIndex:
         data = [
             {
                 "node_key": n["node_key"],
+                "neo4j_id": n.get("neo4j_id", ""),
                 "node_type": n["node_type"],
                 "text": n["text"][:2048],
                 "embedding": emb,
@@ -104,9 +108,10 @@ class GraphNodeIndex:
     def search(
         self, provider_id: str, query: str, top_k: int = 10
     ) -> list[dict]:
-        """Semantic search for graph nodes matching a query.
+        """Semantic search for graph nodes.
 
-        Returns list of {node_key, node_type, text, score}.
+        Returns list of {node_key, neo4j_id, node_type, text, score}.
+        neo4j_id is the direct link to the Neo4j graph — no fuzzy lookup needed.
         """
         name = self._collection_name(provider_id)
         if not utility.has_collection(name):
@@ -122,7 +127,7 @@ class GraphNodeIndex:
             anns_field="embedding",
             param={"metric_type": "COSINE", "params": {"nprobe": 16}},
             limit=top_k,
-            output_fields=["node_key", "node_type", "text"],
+            output_fields=["node_key", "neo4j_id", "node_type", "text"],
         )
 
         hits = []
@@ -130,6 +135,7 @@ class GraphNodeIndex:
             entity = hit.entity
             hits.append({
                 "node_key": entity.get("node_key"),
+                "neo4j_id": entity.get("neo4j_id"),
                 "node_type": entity.get("node_type"),
                 "text": entity.get("text"),
                 "score": hit.score,

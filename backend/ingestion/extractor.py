@@ -22,45 +22,22 @@ def extract_from_chunk(
     chunk: KnowledgeChunk,
     pipeline: FullExtractionPipeline,
 ) -> ExtractionResult:
-    """Run all extraction modules on a single chunk and return typed models."""
+    """Single unified LLM call per chunk → entities + concepts + relationships + propositions."""
     text = chunk.text
 
-    # Extract entities
-    entities = _build_entities(pipeline.extract_entities(text))
+    # One LLM call for everything
+    raw = pipeline.extract_unified(text)
 
-    # Extract concepts
-    concepts = _build_concepts(pipeline.extract_concepts(text))
-
-    # Extract relationships (grounded to extracted entity labels)
-    entity_labels = [e.label for e in entities]
-    relations = _build_relationships(
-        pipeline.extract_relationships(text, entity_labels)
-    )
-
-    # Extract propositions
-    propositions = _build_propositions(
-        pipeline.extract_propositions(text), chunk.chunk_id
-    )
-
-    # Extract procedure (SOP only)
-    procedure = None
-    if chunk.doc_type == DocumentType.SOP:
-        proc_data = pipeline.extract_procedure(text)
-        procedure = _build_procedure(proc_data, chunk.chunk_id)
-
-    # Extract table semantics (DDL only)
-    table_semantic = None
-    if chunk.doc_type == DocumentType.DDL:
-        sem_data = pipeline.extract_db_semantics(text)
-        table_semantic = _build_table_semantic(sem_data)
+    entities = _build_entities(raw["entities"])
+    concepts = _build_concepts(raw["concepts"])
+    relations = _build_relationships(raw["relationships"])
+    propositions = _build_propositions(raw["propositions"], chunk.chunk_id)
 
     return ExtractionResult(
         entities=entities,
         concepts=concepts,
         relations=relations,
         propositions=propositions,
-        procedure=procedure,
-        table_semantic=table_semantic,
     )
 
 

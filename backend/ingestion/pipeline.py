@@ -1,9 +1,12 @@
+import asyncio
 import json
 import logging
 import time
 from collections.abc import AsyncGenerator
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
 
+from config import settings
 from models import (
     DocumentType,
     KnowledgeChunk,
@@ -17,7 +20,7 @@ from ingestion.parsers import parse_document
 from ingestion.chunker import chunk_document
 from ingestion.dspy_programs import FullExtractionPipeline
 from ingestion.extractor import extract_from_chunk
-from ingestion.resolver import EntityResolver
+from ingestion.resolver import SemanticResolver
 from llm.embeddings import get_embedding_provider
 from stores.graph import GraphStore
 from stores.graph_index import GraphNodeIndex
@@ -42,12 +45,17 @@ async def run_pipeline(
     knowledge_store: KnowledgeStore,
     procedural_store: ProceduralStore,
     graph_node_index: GraphNodeIndex | None = None,
+    density: str | None = None,
 ) -> AsyncGenerator[PipelineEvent, None]:
     """Five-stage ingestion pipeline yielding SSE events as it progresses."""
 
-    extraction_pipeline = FullExtractionPipeline()
-    resolver = EntityResolver(graph)
+    extraction_pipeline = FullExtractionPipeline(density=density)
     embedder = get_embedding_provider()
+
+    # Semantic resolver needs the GN index — ensure it exists
+    if not graph_node_index:
+        graph_node_index = GraphNodeIndex()
+    resolver = SemanticResolver(graph, graph_node_index)
     pipeline_start = time.time()
     stage_times: dict[str, float] = {}
 
@@ -214,45 +222,41 @@ async def run_pipeline(
             extract_warnings += 1
             logger.warning(f"DDL extraction failed: {e}")
 
+        # Parallel per-chunk extraction for DDL entities/concepts
         total_chunks = len(chunks)
-        for i, chunk in enumerate(chunks):
-            yield _event(
-                PipelineStage.EXTRACT,
-                f"Extracting chunk {i + 1}/{total_chunks}...",
-                {"chunk_index": i, "total": total_chunks, "progress": True},
-            )
-            try:
-                result = extract_from_chunk(chunk, extraction_pipeline)
-                all_entities.extend(result.entities)
-                all_concepts.extend(result.concepts)
-                all_relations.extend(result.relations)
-                all_propositions.extend(result.propositions)
-                # Emit per-chunk extraction results
-                yield _event(
-                    PipelineStage.EXTRACT,
-                    f"Chunk {i + 1}: {len(result.entities)} entities, {len(result.concepts)} concepts",
-                    {
-                        "chunk_index": i,
-                        "chunk_result": True,
-                        "new_entities": [{"label": e.label, "type": e.entity_type} for e in result.entities],
-                        "new_concepts": [{"name": c.name} for c in result.concepts],
-                        "new_relations": [{"src": r.source_label, "edge": r.edge_type, "tgt": r.target_label} for r in result.relations],
-                        "running_totals": {
-                            "entities": len(all_entities),
-                            "concepts": len(all_concepts),
-                            "relationships": len(all_relations),
-                            "propositions": len(all_propositions),
+        concurrency = settings.EXTRACTION_CONCURRENCY
+        completed = 0
+
+        with ThreadPoolExecutor(max_workers=concurrency) as executor:
+            futures = {
+                executor.submit(extract_from_chunk, chunk, extraction_pipeline): i
+                for i, chunk in enumerate(chunks)
+            }
+            from concurrent.futures import as_completed
+            for future in as_completed(futures):
+                i = futures[future]
+                completed += 1
+                try:
+                    result = future.result()
+                    all_entities.extend(result.entities)
+                    all_concepts.extend(result.concepts)
+                    all_relations.extend(result.relations)
+                    all_propositions.extend(result.propositions)
+                    yield _event(
+                        PipelineStage.EXTRACT,
+                        f"Chunk {completed}/{total_chunks}: {len(result.entities)} entities, {len(result.concepts)} concepts",
+                        {
+                            "chunk_index": i, "chunk_result": True,
+                            "new_entities": [{"label": e.label, "type": e.entity_type} for e in result.entities],
+                            "new_concepts": [{"name": c.name} for c in result.concepts],
+                            "new_relations": [{"src": r.source_label, "edge": r.edge_type, "tgt": r.target_label} for r in result.relations],
+                            "running_totals": {"entities": len(all_entities), "concepts": len(all_concepts), "relationships": len(all_relations), "propositions": len(all_propositions)},
                         },
-                    },
-                )
-            except Exception as e:
-                extract_warnings += 1
-                logger.warning(f"Extraction failed for chunk {i}: {e}")
-                yield _event(
-                    PipelineStage.EXTRACT,
-                    f"Warning: extraction failed for chunk {i + 1}: {e}",
-                    {"chunk_index": i, "warning": True},
-                )
+                    )
+                except Exception as e:
+                    extract_warnings += 1
+                    logger.warning(f"Extraction failed for chunk {i}: {e}")
+                    yield _event(PipelineStage.EXTRACT, f"Warning: extraction failed for chunk {completed}: {e}", {"chunk_index": i, "warning": True})
 
         stage_times["extract"] = round(time.time() - stage_start, 2)
         yield _event(
@@ -272,46 +276,63 @@ async def run_pipeline(
         )
 
     else:
-        # Standard documents: full per-chunk extraction with live entity streaming
+        # Standard documents: parallel per-chunk extraction
         total_chunks = len(chunks)
-        for i, chunk in enumerate(chunks):
-            yield _event(
-                PipelineStage.EXTRACT,
-                f"Extracting chunk {i + 1}/{total_chunks}...",
-                {"chunk_index": i, "total": total_chunks, "progress": True},
-            )
-            try:
-                result = extract_from_chunk(chunk, extraction_pipeline)
-                all_entities.extend(result.entities)
-                all_concepts.extend(result.concepts)
-                all_relations.extend(result.relations)
-                all_propositions.extend(result.propositions)
-                # Emit per-chunk extraction results (live ticker data)
-                yield _event(
-                    PipelineStage.EXTRACT,
-                    f"Chunk {i + 1}: {len(result.entities)} entities, {len(result.concepts)} concepts, {len(result.relations)} relationships",
-                    {
-                        "chunk_index": i,
-                        "chunk_result": True,
-                        "new_entities": [{"label": e.label, "type": e.entity_type} for e in result.entities],
-                        "new_concepts": [{"name": c.name} for c in result.concepts],
-                        "new_relations": [{"src": r.source_label, "edge": r.edge_type, "tgt": r.target_label} for r in result.relations],
-                        "running_totals": {
-                            "entities": len(all_entities),
-                            "concepts": len(all_concepts),
-                            "relationships": len(all_relations),
-                            "propositions": len(all_propositions),
+        concurrency = settings.EXTRACTION_CONCURRENCY
+
+        yield _event(
+            PipelineStage.EXTRACT,
+            f"Extracting {total_chunks} chunks (concurrency={concurrency})...",
+            {"total": total_chunks, "concurrency": concurrency, "progress": True},
+        )
+
+        # Run extractions in parallel using a thread pool (DSPy calls are synchronous)
+        loop = asyncio.get_event_loop()
+        completed = 0
+
+        with ThreadPoolExecutor(max_workers=concurrency) as executor:
+            # Submit all chunks
+            futures = {
+                executor.submit(extract_from_chunk, chunk, extraction_pipeline): i
+                for i, chunk in enumerate(chunks)
+            }
+
+            # Collect results as they complete
+            from concurrent.futures import as_completed
+            for future in as_completed(futures):
+                i = futures[future]
+                completed += 1
+                try:
+                    result = future.result()
+                    all_entities.extend(result.entities)
+                    all_concepts.extend(result.concepts)
+                    all_relations.extend(result.relations)
+                    all_propositions.extend(result.propositions)
+                    yield _event(
+                        PipelineStage.EXTRACT,
+                        f"Chunk {completed}/{total_chunks}: {len(result.entities)} entities, {len(result.concepts)} concepts",
+                        {
+                            "chunk_index": i,
+                            "chunk_result": True,
+                            "new_entities": [{"label": e.label, "type": e.entity_type} for e in result.entities],
+                            "new_concepts": [{"name": c.name} for c in result.concepts],
+                            "new_relations": [{"src": r.source_label, "edge": r.edge_type, "tgt": r.target_label} for r in result.relations],
+                            "running_totals": {
+                                "entities": len(all_entities),
+                                "concepts": len(all_concepts),
+                                "relationships": len(all_relations),
+                                "propositions": len(all_propositions),
+                            },
                         },
-                    },
-                )
-            except Exception as e:
-                extract_warnings += 1
-                logger.warning(f"Extraction failed for chunk {i}: {e}")
-                yield _event(
-                    PipelineStage.EXTRACT,
-                    f"Warning: extraction failed for chunk {i + 1}: {e}",
-                    {"chunk_index": i, "warning": True},
-                )
+                    )
+                except Exception as e:
+                    extract_warnings += 1
+                    logger.warning(f"Extraction failed for chunk {i}: {e}")
+                    yield _event(
+                        PipelineStage.EXTRACT,
+                        f"Warning: extraction failed for chunk {completed}: {e}",
+                        {"chunk_index": i, "warning": True},
+                    )
 
         stage_times["extract"] = round(time.time() - stage_start, 2)
         yield _event(
@@ -331,22 +352,32 @@ async def run_pipeline(
             },
         )
 
-    # ── Stage 4: Resolve ──────────────────────────────
+    # ── Stage 4: Resolve (semantic) ────────────────────
     stage_start = time.time()
     try:
-        total, merged = await resolver.resolve_batch(all_entities, provider_id)
-        new_count = total - merged
+        # Resolve entities via embedding similarity
+        ent_total, ent_new = await resolver.resolve_entities(all_entities, provider_id)
+        ent_merged = ent_total - ent_new
+
+        # Resolve concepts via embedding similarity
+        con_total, con_new = await resolver.resolve_concepts(all_concepts, provider_id)
+        con_merged = con_total - con_new
+
+        # Procedure indexing happens in Store stage after DAG creation (needs neo4j_ids)
+
         stage_times["resolve"] = round(time.time() - stage_start, 2)
         yield _event(
             PipelineStage.RESOLVE,
-            f"Resolved {total} entities, {new_count} new, {merged} merged",
+            f"Resolved {ent_total} entities ({ent_new} new, {ent_merged} merged), "
+            f"{con_total} concepts ({con_new} new, {con_merged} merged)",
             {
-                "total": total,
-                "new": new_count,
-                "merged": merged,
+                "entities_total": ent_total,
+                "entities_new": ent_new,
+                "entities_merged": ent_merged,
+                "concepts_total": con_total,
+                "concepts_new": con_new,
+                "concepts_merged": con_merged,
                 "duration_s": stage_times["resolve"],
-                "entity_count_before": len(all_entities),
-                "entity_count_after": new_count,
             },
         )
     except Exception as e:
@@ -357,7 +388,7 @@ async def run_pipeline(
     # ── Stage 5: Store ────────────────────────────────
     stage_start = time.time()
     try:
-        node_count = 0
+        node_count = ent_new + con_new  # entities + concepts already created by resolver
         edge_count = 0
 
         # 5a. Create Document node
@@ -378,10 +409,8 @@ async def run_pipeline(
             {"store_step": "chunks", "nodes": node_count, "edges": edge_count},
         )
 
-        # 5c. Concepts → graph
-        for concept in all_concepts:
-            await graph.merge_concept(concept, provider_id)
-            node_count += 1
+        # 5c. Concepts — already created in Neo4j by SemanticResolver
+        node_count += con_new
 
         # 5d. Chunk → Entity edges (MENTIONS)
         for chunk in chunks:
@@ -423,7 +452,7 @@ async def run_pipeline(
 
         # 5h. Procedures → DAG in graph + Procedural Store
         for proc in all_procedures:
-            step_ids = await graph.create_procedure_dag(proc, provider_id)
+            proc_node_id, step_ids = await graph.create_procedure_dag(proc, provider_id)
             node_count += 1 + len(step_ids)
             edge_count += len(step_ids)
             edge_count += max(0, len(step_ids) - 1)
@@ -459,6 +488,16 @@ async def run_pipeline(
             )
             procedural_store.upsert_procedure(ps_entry, provider_id)
 
+            # Index procedure + steps in GN with their neo4j_ids
+            resolver.index_procedure(
+                provider_id,
+                proc.name,
+                proc.intent,
+                proc_node_id,
+                step_ids,
+                [s.model_dump() for s in proc.steps],
+            )
+
         # 5i. Table semantics → graph
         for ts in all_table_semantics:
             await graph.create_table_schema_node(ts, provider_id)
@@ -489,38 +528,7 @@ async def run_pipeline(
         ]
         knowledge_store.upsert_chunks(ks_entries, provider_id)
 
-        # 5k. Graph Node Index
-        if graph_node_index:
-            index_nodes = []
-            for ent in all_entities:
-                text = f"{ent.label}: {ent.description}" if ent.description else ent.label
-                index_nodes.append({
-                    "node_key": f"entity:{ent.label}",
-                    "node_type": "Entity",
-                    "text": text,
-                })
-            for concept in all_concepts:
-                text = f"{concept.name}: {concept.definition}"
-                index_nodes.append({
-                    "node_key": f"concept:{concept.name}",
-                    "node_type": "Concept",
-                    "text": text,
-                })
-            for proc in all_procedures:
-                text = f"{proc.name}: {proc.intent}"
-                index_nodes.append({
-                    "node_key": f"procedure:{proc.name}",
-                    "node_type": "Procedure",
-                    "text": text,
-                })
-                for step in proc.steps:
-                    index_nodes.append({
-                        "node_key": f"step:{proc.name}:{step.step_number}",
-                        "node_type": "Step",
-                        "text": step.description,
-                    })
-            indexed = graph_node_index.index_nodes_batch(provider_id, index_nodes)
-            logger.info(f"Indexed {indexed} graph nodes for semantic search")
+        # GN indexing already happened during Resolve stage (entities, concepts, procedures)
 
         stage_times["store"] = round(time.time() - stage_start, 2)
         total_duration = round(time.time() - pipeline_start, 2)

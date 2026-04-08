@@ -28,11 +28,20 @@ export interface Toast {
   createdAt: Date
 }
 
+export interface StartIngestionOptions {
+  providerId: string
+  docType: string
+  file?: File
+  url?: string
+  crawlDepth?: number
+  density?: string
+}
+
 interface JobContextValue {
   jobs: Job[]
   toasts: Toast[]
   activeJobCount: number
-  startIngestion: (providerId: string, docType: string, file: File) => string
+  startIngestion: (options: StartIngestionOptions) => string
   cancelJob: (jobId: string) => void
   dismissToast: (toastId: string) => void
   getJobsForProvider: (providerId: string) => Job[]
@@ -91,15 +100,21 @@ export function JobProvider({ children }: { children: ReactNode }) {
     })
   }, [])
 
-  // Store files by jobId since we can't put File objects in state
-  const fileRefs = useRef<Map<string, File>>(new Map())
+  // Store options by jobId since we can't put File objects in state
+  const optionsRefs = useRef<Map<string, StartIngestionOptions>>(new Map())
 
   const runJob = useCallback(
-    (jobId: string, providerId: string, docType: string, file: File) => {
+    (jobId: string, opts: StartIngestionOptions) => {
+      const displayName = opts.file?.name || opts.url || 'unknown'
       const abort = ingestDocument(
-        providerId,
-        docType,
-        file,
+        {
+          providerId: opts.providerId,
+          docType: opts.docType,
+          file: opts.file,
+          url: opts.url,
+          crawlDepth: opts.crawlDepth,
+          density: opts.density,
+        },
         (event) => {
           setJobs((prev) =>
             prev.map((j) =>
@@ -125,14 +140,14 @@ export function JobProvider({ children }: { children: ReactNode }) {
             )
           )
           addToast({
-            message: `Ingestion failed: ${file.name}`,
+            message: `Ingestion failed: ${displayName}`,
             detail: error,
             type: 'error',
             jobId,
           })
-          runningRef.current.delete(providerId)
-          fileRefs.current.delete(jobId)
-          processQueue(providerId)
+          runningRef.current.delete(opts.providerId)
+          optionsRefs.current.delete(jobId)
+          processQueue(opts.providerId)
         },
         () => {
           setJobs((prev) =>
@@ -143,13 +158,13 @@ export function JobProvider({ children }: { children: ReactNode }) {
             )
           )
           addToast({
-            message: `Ingested ${file.name}`,
+            message: `Ingested ${displayName}`,
             type: 'success',
             jobId,
           })
-          runningRef.current.delete(providerId)
-          fileRefs.current.delete(jobId)
-          processQueue(providerId)
+          runningRef.current.delete(opts.providerId)
+          optionsRefs.current.delete(jobId)
+          processQueue(opts.providerId)
         }
       )
       abortRefs.current.set(jobId, abort)
@@ -158,36 +173,34 @@ export function JobProvider({ children }: { children: ReactNode }) {
   )
 
   const startIngestion = useCallback(
-    (providerId: string, docType: string, file: File): string => {
+    (opts: StartIngestionOptions): string => {
       const jobId = `job-${++jobCounter}-${Date.now()}`
+      const displayName = opts.file?.name || opts.url || 'unknown'
       const job: Job = {
         id: jobId,
-        providerId,
-        filename: file.name,
-        docType,
+        providerId: opts.providerId,
+        filename: displayName,
+        docType: opts.docType,
         status: 'queued',
         events: [],
         startedAt: new Date(),
         finishedAt: null,
         errorMessage: null,
       }
-      fileRefs.current.set(jobId, file)
+      optionsRefs.current.set(jobId, opts)
       setJobs((prev) => [...prev, job])
 
-      // If nothing is running for this provider, start immediately
-      if (!runningRef.current.has(providerId)) {
-        runningRef.current.add(providerId)
-        // Mark as running immediately
+      if (!runningRef.current.has(opts.providerId)) {
+        runningRef.current.add(opts.providerId)
         job.status = 'running'
         setJobs((prev) =>
           prev.map((j) => (j.id === jobId ? { ...j, status: 'running' } : j))
         )
-        runJob(jobId, providerId, docType, file)
+        runJob(jobId, opts)
       } else {
-        // Queue it
-        const queue = queueRef.current.get(providerId) || []
+        const queue = queueRef.current.get(opts.providerId) || []
         queue.push(jobId)
-        queueRef.current.set(providerId, queue)
+        queueRef.current.set(opts.providerId, queue)
       }
 
       return jobId

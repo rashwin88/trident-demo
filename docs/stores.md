@@ -33,8 +33,8 @@ Stores structured knowledge as nodes and edges. Supports graph traversal for que
 |-------|---------------|------------|
 | Document | filename, doc_type, chunk_count | Pipeline Stage 1 |
 | Chunk | chunk_id, char_start, char_end, source_file | Pipeline Stage 2 |
-| Entity | label, entity_type, description | NamedEntityExtractionModule |
-| Concept | name, definition, aliases[] | ConceptExtractionModule |
+| Entity | label, entity_type, description | SemanticResolver (resolve + index in GN) |
+| Concept | name, definition, aliases[] | SemanticResolver (resolve + index in GN) |
 | Proposition | subject, predicate, object, chunk_id | PropositionExtractionModule |
 | Procedure | name, intent, steps_json | ProcedureExtractionModule |
 | Step | step_number, description, responsible | create_procedure_dag() |
@@ -66,10 +66,32 @@ graph TD
 ```mermaid
 sequenceDiagram
     participant P as Pipeline
+    participant SR as SemanticResolver
+    participant GN as GraphNodeIndex
     participant G as GraphStore
 
-    Note over P,G: After extraction, store to graph
+    Note over P,G: Stage 4 — Resolve: entities + concepts via SemanticResolver
+    loop Each entity
+        SR->>GN: search(entity_text) — cosine match
+        alt Score >= 0.85 — neo4j_id from GN hit
+            SR->>SR: Reuse existing (neo4j_id direct, no fuzzy lookup)
+        else No match
+            SR->>G: merge_entity(entity, provider_id) → neo4j_id
+            SR->>GN: index_node(neo4j_id) — immediate indexing
+        end
+    end
 
+    loop Each concept
+        SR->>GN: search(concept_text) — cosine match
+        alt Score >= 0.82 — neo4j_id from GN hit
+            SR->>SR: Reuse existing (neo4j_id direct, no fuzzy lookup)
+        else No match
+            SR->>G: merge_concept(concept, provider_id) → neo4j_id
+            SR->>GN: index_node(neo4j_id) — immediate indexing
+        end
+    end
+
+    Note over P,G: Stage 5 — Store: remaining graph structure
     P->>G: create_document_node(filename, doc_type, chunk_count)
     G-->>P: node_id
 
@@ -79,14 +101,11 @@ sequenceDiagram
     end
 
     loop Each entity
-        P->>G: merge_entity(entity, provider_id)
-        Note right of G: MERGE — deduplicates<br/>by label + provider_id
         P->>G: create_chunk_entity_edge(chunk_id, label)
         Note right of G: Creates MENTIONS edge
     end
 
     loop Each concept
-        P->>G: merge_concept(concept, provider_id)
         P->>G: create_chunk_concept_edge(chunk_id, name)
         Note right of G: Creates DEFINES edge
     end
@@ -98,9 +117,11 @@ sequenceDiagram
 
     opt SOP procedures
         P->>G: create_procedure_dag(proc, provider_id)
-        Note right of G: Creates Procedure + Step<br/>nodes + HAS_STEP +<br/>PRECEDES edges
+        Note right of G: Returns (proc_node_id, step_ids)<br/>Creates Procedure + Step nodes<br/>+ HAS_STEP + PRECEDES edges
         P->>G: link_step_to_entity(step_id, entity_label)
         Note right of G: Creates REFERENCES edge
+        P->>GN: index_procedure(proc + steps with neo4j_ids)
+        Note right of GN: Batch indexing with neo4j_ids<br/>from DAG creation
     end
 ```
 
@@ -133,13 +154,12 @@ sequenceDiagram
 
     QE->>GN: search(question, top_k=10)
     Note right of GN: Semantic search over<br/>entity/concept/procedure/step<br/>label embeddings
-    GN-->>QE: hits[] with scores
+    GN-->>QE: hits[] with scores + neo4j_id
 
-    QE->>G: fuzzy_find_entities(labels from hits)
-    Note right of G: Case-insensitive match on<br/>Entity.label / Concept.name
-    G-->>QE: anchor_nodes[]
+    Note over QE: neo4j_id comes directly from GN hit<br/>No fuzzy_find_entities needed
+    QE->>QE: Filter hits by score >= 0.4, build anchors from neo4j_id
 
-    QE->>G: get_reasoning_subgraph(anchor_ids, hops=2)
+    QE->>G: get_reasoning_subgraph(anchor neo4j_ids, hops=2)
     Note right of G: BFS via APOC subgraphNodes +<br/>subgraphAll for edges,<br/>filtered to provider_id
     G-->>QE: (nodes[], edges[])
 ```
@@ -239,7 +259,12 @@ sequenceDiagram
 
 ## 4. Graph Node Index — `graph_index.py` (Milvus)
 
-Embeds entity, concept, procedure, and step labels for semantic graph search. Used by the query engine to find anchor nodes without relying on string matching.
+The GN index is the **central spine** of Trident. Every node (entity, concept, procedure, step) gets an embedding signature stored here. The index serves a **dual purpose**:
+
+1. **Deduplication during ingestion** — The `SemanticResolver` embeds each candidate node and cosine-searches GN to find existing matches. If a match exceeds the similarity threshold, the candidate merges with the existing node instead of creating a duplicate.
+2. **Anchor search during query** — The query engine embeds the user's question and searches GN to find semantically relevant graph nodes as entry points for subgraph traversal.
+
+This is the Cognee-like pattern: every node has an embedding, used for both resolution and retrieval.
 
 ### Collection Schema
 
@@ -248,40 +273,69 @@ Collection name: `gn_{provider_id}` (hyphens replaced with underscores)
 | Field | Type | Notes |
 |-------|------|-------|
 | node_key | VARCHAR(256) | Primary key (e.g. `entity:CID-44821`, `concept:MRC`, `step:Decom:1`) |
+| neo4j_id | VARCHAR(128) | Neo4j element ID — direct link to graph, no fuzzy lookup needed |
 | node_type | VARCHAR(32) | `Entity`, `Concept`, `Procedure`, `Step` |
-| text | VARCHAR(2048) | Label + description text used for embedding |
+| text | VARCHAR(2048) | Embedding input text (see table below) |
 | embedding | FLOAT_VECTOR(768) | Indexed: IVF_FLAT, COSINE |
 
-### Node Key Format
+The `neo4j_id` field is the key architectural change: every GN entry stores the Neo4j element ID of its corresponding graph node. This creates a direct vector-to-graph link. When the query engine or agent searches GN, they get the `neo4j_id` back immediately and can use it to anchor into the graph without any `fuzzy_find_entities` call.
 
-| Node Type | Key Pattern | Text Content |
-|-----------|-------------|-------------|
-| Entity | `entity:{label}` | `{label}: {description}` |
-| Concept | `concept:{name}` | `{name}: {definition}` |
-| Procedure | `procedure:{name}` | `{name}: {intent}` |
-| Step | `step:{proc_name}:{step_number}` | `{step.description}` |
+### Embedding Input Text by Node Type
+
+| Node Type | Key Pattern | Embedding Input Text | Example |
+|-----------|-------------|---------------------|---------|
+| Entity | `entity:{label}` | `"{label}: {description}"` (or just `"{label}"` if no description) | `"CID-44821: MPLS circuit between Chicago and NYC"` |
+| Concept | `concept:{name}` | `"{name}: {definition}. Also known as: {aliases}"` | `"Monthly Recurring Charge: Fixed monthly fee for service. Also known as: MRC, recurring fee"` |
+| Procedure | `procedure:{name}` | `"{name}: {intent}"` | `"Circuit Decommission: Safely decommission an MPLS circuit"` |
+| Step | `step:{proc_name}:{step_number}` | `"{description}"` | `"Submit decommission request to NOC via ServiceNow ticket"` |
+
+### Similarity Thresholds (Semantic Resolution)
+
+| Node Type | Threshold | Behaviour |
+|-----------|-----------|-----------|
+| Entity | 0.85 | Merge if cosine similarity >= 0.85 |
+| Concept | 0.82 | Merge if cosine similarity >= 0.82 |
+| Procedure | N/A | Always new (indexed but never resolved) |
+| Step | N/A | Always new (indexed but never resolved) |
 
 ### Operations
 
 ```mermaid
 sequenceDiagram
-    participant P as Pipeline / Query Engine
+    participant SR as SemanticResolver
     participant GN as GraphNodeIndex
+    participant G as Neo4j
     participant M as Milvus
 
-    Note over P,M: Ingestion — index all entities, concepts, procedures, steps
-    P->>GN: index_nodes_batch(provider_id, nodes[])
-    GN->>GN: ensure_collection(provider_id)
+    Note over SR,M: Ingestion — resolve entities (one at a time)
+    SR->>GN: search(provider_id, entity_text, top_k=3)
+    GN->>GN: embed(entity_text)
+    GN->>M: ANN search (COSINE, nprobe=16)
+    M-->>GN: hits[] with scores
+    GN-->>SR: [{node_key, neo4j_id, node_type, text, score}]
+    alt Score >= 0.85 and node_type == Entity and neo4j_id present
+        SR->>SR: Use neo4j_id directly (no fuzzy lookup)
+    else No match
+        SR->>G: merge_entity() → neo4j_id
+        SR->>GN: index_node(provider_id, node_key, neo4j_id, "Entity", text)
+        GN->>GN: embed(text)
+        GN->>M: Upsert immediately
+        Note over GN: Available for next candidate in same batch
+    end
+
+    Note over SR,M: Ingestion — index procedures (in Store stage, after DAG creation)
+    SR->>GN: index_nodes_batch(provider_id, proc+step nodes with neo4j_ids)
     GN->>GN: embed_batch(node texts)
     GN->>M: Upsert + flush
-    GN-->>P: count
+    GN-->>SR: count
 
-    Note over P,M: Query — semantic search for graph anchors
-    P->>GN: search(provider_id, question, top_k=10)
+    Note over SR,M: Query — semantic search for graph anchors
+    SR->>GN: search(provider_id, question, top_k=10)
     GN->>GN: embed(question)
     GN->>M: ANN search (COSINE, nprobe=16)
     M-->>GN: hits[] with scores
-    GN-->>P: [{node_key, node_type, text, score}]
+    GN-->>SR: [{node_key, neo4j_id, node_type, text, score}]
+    Note over SR: neo4j_id used directly as graph anchor — no fuzzy_find_entities
 ```
 
 ## Provider Lifecycle

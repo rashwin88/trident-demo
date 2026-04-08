@@ -4,6 +4,126 @@
   gap: 0.75rem;
 }
 
+/* ── Top row (mode toggle + density + crawl) ── */
+
+.topRow {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.modeToggle {
+  display: flex;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+
+.modeBtn {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.4rem 0.75rem;
+  border: none;
+  background: var(--bg-primary);
+  color: var(--text-tertiary);
+  font-size: 0.78rem;
+  font-weight: 500;
+  font-family: inherit;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.modeBtn:first-child { border-right: 1px solid var(--border); }
+.modeBtnActive { background: var(--accent-light); color: var(--accent); }
+.modeBtn:hover:not(.modeBtnActive) { background: var(--bg-surface); }
+
+.densityControl, .crawlControl {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.controlLabel {
+  font-size: 0.68rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+
+.densitySelect {
+  padding: 0.3rem 0.5rem;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--bg-primary);
+  color: var(--text-secondary);
+  font-size: 0.75rem;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.slider {
+  width: 80px;
+  height: 4px;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.sliderValue {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  min-width: 14px;
+  text-align: center;
+}
+
+/* ── URL input ────────────────────────────────── */
+
+.urlRow {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.urlInputWrap {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 0.55rem 0.75rem;
+  transition: border-color 0.15s;
+}
+
+.urlInputWrap:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(232, 43, 46, 0.08);
+}
+
+.urlIcon { color: var(--text-muted); flex-shrink: 0; }
+
+.urlInput {
+  flex: 1;
+  border: none;
+  background: transparent;
+  color: var(--text-primary);
+  font-size: 0.85rem;
+  font-family: inherit;
+  outline: none;
+}
+
+.urlInput::placeholder { color: var(--text-muted); }
+
+.crawlInfo {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  padding-left: 0.25rem;
+}
+
 /* ── Drop zone ───────────────────────────────── */
 
 .dropzone {

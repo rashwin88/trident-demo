@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useCallback, useState } from 'react'
 import ForceGraph2D from 'react-force-graph-2d'
-import { fetchGraph, fetchNodeDetail, type GraphData, type NodeDetail } from '../api/client'
+import { fetchGraph, fetchNodeDetail, searchNodes, type GraphData, type NodeDetail, type SearchHit } from '../api/client'
 import styles from './GraphExplorer.module.css'
 
 const NODE_COLORS: Record<string, string> = {
@@ -77,6 +77,13 @@ export default function GraphExplorer({ providerId }: Props) {
   const [focusNodeId, setFocusNodeId] = useState<string | null>(null)
   const highlightDepth = 1
 
+  // Search state
+  const [searchQuery, setSearchQuery] = useState('')
+  const [searchType, setSearchType] = useState<string>('all')
+  const [searchResults, setSearchResults] = useState<SearchHit[]>([])
+  const [searching, setSearching] = useState(false)
+  const searchTimeout = useRef<ReturnType<typeof setTimeout> | null>(null)
+
   // Resize observer — measures actual graph container dimensions
   useEffect(() => {
     const el = containerRef.current
@@ -149,6 +156,51 @@ export default function GraphExplorer({ providerId }: Props) {
 
   const showAll = () => setHiddenTypes(new Set())
   const showCore = () => setHiddenTypes(new Set(['Chunk', 'Proposition', 'Document']))
+
+  // Debounced semantic search
+  const runSearch = useCallback(async (query: string) => {
+    if (!query.trim() || !providerId) {
+      setSearchResults([])
+      setSearching(false)
+      return
+    }
+    setSearching(true)
+    try {
+      const typeFilter = searchType === 'all' ? undefined : searchType
+      const hits = await searchNodes(providerId, query.trim(), typeFilter)
+      setSearchResults(hits)
+    } catch {
+      setSearchResults([])
+    } finally {
+      setSearching(false)
+    }
+  }, [providerId, searchType])
+
+  const handleSearch = useCallback((query: string) => {
+    setSearchQuery(query)
+    if (searchTimeout.current) clearTimeout(searchTimeout.current)
+    if (!query.trim()) {
+      setSearchResults([])
+      setSearching(false)
+      return
+    }
+    setSearching(true) // show spinner immediately
+    searchTimeout.current = setTimeout(() => runSearch(query), 300)
+  }, [runSearch])
+
+  const handleSearchKeyDown = useCallback((e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' && searchQuery.trim()) {
+      if (searchTimeout.current) clearTimeout(searchTimeout.current)
+      runSearch(searchQuery)
+    }
+    if (e.key === 'Escape') {
+      setSearchQuery('')
+      setSearchResults([])
+      setSearching(false)
+    }
+  }, [searchQuery, runSearch])
+
+  // navigateToSearchResult is defined after navigateToNode below
 
   // Build adjacency map from ALL graph data (ignoring filters) for highlight traversal
   const adjacencyMap = useMemo(() => {
@@ -336,12 +388,23 @@ export default function GraphExplorer({ providerId }: Props) {
       const neighborhood = getNeighborhoodIds(nodeId, highlightDepth)
       setHighlightedIds(neighborhood)
       setFocusNodeId(nodeId)
-      // Center on the node
-      const node = fgData.nodes.find((n) => n.id === nodeId)
-      if (node && fgRef.current) {
-        fgRef.current.centerAt((node as any).x, (node as any).y, 500)
-        fgRef.current.zoom(3, 500)
+
+      // Find the node in the force graph's internal data (has x/y from simulation)
+      if (fgRef.current) {
+        const fg = fgRef.current
+        // Access the internal graph data which has computed x/y positions
+        const internalNodes = fg.graphData?.().nodes || []
+        const target = internalNodes.find((n: any) => n.id === nodeId)
+        if (target && target.x != null && target.y != null) {
+          // Center first, then zoom — with a delay so they don't fight
+          fg.centerAt(target.x, target.y, 600)
+          setTimeout(() => fg.zoom(2.5, 400), 100)
+        } else {
+          // Node not found in rendered data — just zoom to fit
+          setTimeout(() => fg.zoomToFit(400, 80), 100)
+        }
       }
+
       try {
         const detail = await fetchNodeDetail(providerId, nodeId)
         setSelectedNode(detail)
@@ -349,8 +412,41 @@ export default function GraphExplorer({ providerId }: Props) {
         setSelectedNode(null)
       }
     },
-    [providerId, highlightDepth, getNeighborhoodIds, fgData.nodes]
+    [providerId, highlightDepth, getNeighborhoodIds]
   )
+
+  // Navigate to a search result — match by neo4j_id directly
+  const navigateToSearchResult = useCallback((hit: SearchHit) => {
+    if (!graphData || !providerId) return
+
+    // Primary: match by neo4j_id (direct link from GN index)
+    const neo4jId = (hit as any).neo4j_id
+    let matchNode = neo4jId
+      ? graphData.nodes.find((n) => n.id === neo4jId)
+      : null
+
+    // Fallback: match by node_key label string
+    if (!matchNode) {
+      const keyLabel = hit.node_key.split(':').slice(1).join(':')
+      matchNode = graphData.nodes.find((n) => {
+        const nodeLabel = String(
+          n.properties.label || n.properties.name || n.properties.subject || n.properties.table_name || ''
+        )
+        return nodeLabel.toLowerCase() === keyLabel.toLowerCase() && n.label === hit.node_type
+      })
+    }
+
+    if (matchNode) {
+      // Unhide the type if it's hidden
+      if (hiddenTypes.has(matchNode.label)) {
+        setHiddenTypes((prev) => { const next = new Set(prev); next.delete(matchNode!.label); return next })
+      }
+      // Small delay to let the filter update render before navigating
+      setTimeout(() => navigateToNode(matchNode!.id), 50)
+    }
+    setSearchQuery('')
+    setSearchResults([])
+  }, [graphData, providerId, hiddenTypes, navigateToNode])
 
   // Group neighbours by edge type for sidebar
   const groupedNeighbours = useMemo(() => {
@@ -420,6 +516,55 @@ export default function GraphExplorer({ providerId }: Props) {
             </svg>
           </button>
         </div>
+      </div>
+
+      {/* Search bar */}
+      <div className={styles.searchBar}>
+        <div className={styles.searchInputWrap}>
+          <svg className={styles.searchIcon} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" />
+          </svg>
+          <input
+            className={styles.searchInput}
+            placeholder="Semantic search across nodes... (Enter to search)"
+            value={searchQuery}
+            onChange={(e) => handleSearch(e.target.value)}
+            onKeyDown={handleSearchKeyDown}
+          />
+          {searching && <span className={styles.searchSpinner} />}
+        </div>
+        <div className={styles.searchTypes}>
+          {['all', 'Entity', 'Concept', 'Procedure', 'Step'].map((t) => (
+            <label key={t} className={`${styles.searchTypeLabel} ${searchType === t ? styles.searchTypeActive : ''}`}>
+              <input
+                type="radio"
+                name="searchType"
+                value={t}
+                checked={searchType === t}
+                onChange={() => { setSearchType(t); if (searchQuery.trim()) handleSearch(searchQuery) }}
+                className={styles.searchTypeRadio}
+              />
+              {t === 'all' ? 'All' : t}
+            </label>
+          ))}
+        </div>
+        {searchResults.length > 0 && (
+          <div className={styles.searchResults}>
+            {searchResults.map((hit, i) => (
+              <button
+                key={i}
+                className={styles.searchResultItem}
+                onClick={() => navigateToSearchResult(hit)}
+              >
+                <span className={styles.searchResultDot} style={{ background: NODE_COLORS[hit.node_type] || '#6b7280' }} />
+                <div className={styles.searchResultInfo}>
+                  <span className={styles.searchResultText}>{hit.text.length > 60 ? hit.text.slice(0, 58) + '…' : hit.text}</span>
+                  <span className={styles.searchResultMeta}>{hit.node_type} · {(hit.score * 100).toFixed(0)}% match</span>
+                </div>
+              </button>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Legend */}
@@ -503,12 +648,12 @@ export default function GraphExplorer({ providerId }: Props) {
                   selectedNode.label
                 )}
               </h3>
-              {selectedNode.properties.description != null && (
+              {selectedNode.properties.description != null ? (
                 <p className={styles.detailDesc}>
                   {String(selectedNode.properties.description).slice(0, 200)}
                   {String(selectedNode.properties.description).length > 200 ? '…' : ''}
                 </p>
-              )}
+              ) : null}
             </div>
 
             <div className={styles.detailBody}>
@@ -548,13 +693,121 @@ export default function GraphExplorer({ providerId }: Props) {
                       <span className={styles.propKey}>{k}</span>
                       <span className={styles.propVal}>
                         {typeof v === 'string'
-                          ? v.length > 150 ? v.slice(0, 150) + '…' : v
-                          : JSON.stringify(v)}
+                          ? (v.length > 150 ? v.slice(0, 150) + '…' : v)
+                          : String(v != null ? JSON.stringify(v) : '')}
                       </span>
                     </div>
                   ))}
                 </div>
               </section>
+
+              {/* Chunk text (for Chunk nodes) */}
+              {selectedNode.label === 'Chunk' && selectedNode.properties.text != null ? (
+                <section className={styles.detailSection}>
+                  <h4 className={styles.sectionTitle}>
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" />
+                    </svg>
+                    Chunk Text
+                  </h4>
+                  <div className={styles.chunkText}>
+                    {String(selectedNode.properties.text)}
+                  </div>
+                </section>
+              ) : null}
+
+              {/* Source chunk text (for Entity/Concept nodes — show from connected Chunk neighbours) */}
+              {(selectedNode.label === 'Entity' || selectedNode.label === 'Concept') && (() => {
+                const chunkNeighbours = selectedNode.neighbours.filter((n) => n.neighbour_label === 'Chunk')
+                if (chunkNeighbours.length === 0) return null
+                return (
+                  <section className={styles.detailSection}>
+                    <h4 className={styles.sectionTitle}>
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" />
+                      </svg>
+                      Source Chunks
+                      <span className={styles.countBadge}>{chunkNeighbours.length}</span>
+                    </h4>
+                    {chunkNeighbours.map((cn, i) => (
+                      <div key={i} className={styles.sourceChunk}>
+                        <div className={styles.sourceChunkHeader}>
+                          <span className={styles.sourceChunkFile}>
+                            {String(cn.neighbour_props.source_file || 'unknown')}
+                          </span>
+                          <button className={styles.sourceChunkNav} onClick={() => navigateToNode(cn.neighbour_id)}>
+                            View →
+                          </button>
+                        </div>
+                        {cn.neighbour_props.text != null && (
+                          <div className={styles.chunkText}>
+                            {String(cn.neighbour_props.text).slice(0, 500)}
+                            {String(cn.neighbour_props.text).length > 500 ? '…' : ''}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </section>
+                )
+              })()}
+
+              {/* Procedure details (for Procedure nodes) */}
+              {selectedNode.label === 'Procedure' && (
+                <section className={styles.detailSection}>
+                  <h4 className={styles.sectionTitle}>
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <line x1="8" y1="6" x2="21" y2="6" /><line x1="8" y1="12" x2="21" y2="12" /><line x1="8" y1="18" x2="21" y2="18" />
+                      <line x1="3" y1="6" x2="3.01" y2="6" /><line x1="3" y1="12" x2="3.01" y2="12" /><line x1="3" y1="18" x2="3.01" y2="18" />
+                    </svg>
+                    Procedure Steps
+                  </h4>
+                  {selectedNode.properties.intent != null && (
+                    <p className={styles.procedureIntent}>{String(selectedNode.properties.intent)}</p>
+                  )}
+                  {(() => {
+                    const stepNeighbours = selectedNode.neighbours
+                      .filter((n) => n.neighbour_label === 'Step' && n.edge_type === 'HAS_STEP')
+                      .sort((a, b) => {
+                        const aNum = (a.neighbour_props.step_number as number) || 0
+                        const bNum = (b.neighbour_props.step_number as number) || 0
+                        return aNum - bNum
+                      })
+                    if (stepNeighbours.length === 0) return null
+                    return (
+                      <div className={styles.stepList}>
+                        {stepNeighbours.map((sn, i) => (
+                          <button
+                            key={i}
+                            className={styles.stepItem}
+                            onClick={() => navigateToNode(sn.neighbour_id)}
+                          >
+                            <span className={styles.stepNumber}>{String(sn.neighbour_props.step_number || i + 1)}</span>
+                            <span className={styles.stepDesc}>
+                              {String(sn.neighbour_props.description || '').slice(0, 120)}
+                              {String(sn.neighbour_props.description || '').length > 120 ? '…' : ''}
+                            </span>
+                          </button>
+                        ))}
+                      </div>
+                    )
+                  })()}
+                </section>
+              )}
+
+              {/* Step detail — show referenced entities */}
+              {selectedNode.label === 'Step' && (
+                <section className={styles.detailSection}>
+                  <h4 className={styles.sectionTitle}>
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M20.24 12.24a6 6 0 0 0-8.49-8.49L5 10.5V19h8.5z" />
+                    </svg>
+                    Step Description
+                  </h4>
+                  <div className={styles.chunkText}>
+                    {String(selectedNode.properties.description || '')}
+                  </div>
+                </section>
+              )}
 
               {/* Connections grouped by edge type */}
               {groupedNeighbours.length > 0 && (

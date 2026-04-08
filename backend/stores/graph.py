@@ -208,10 +208,10 @@ class GraphStore:
 
     async def create_procedure_dag(
         self, proc: ExtractedProcedure, provider_id: str
-    ) -> dict[int, str]:
+    ) -> tuple[str, dict[int, str]]:
         """Create a Procedure node + individual Step nodes as a DAG.
 
-        Returns a mapping of step_number → node_id.
+        Returns (procedure_node_id, {step_number → step_node_id}).
         """
         proc_node_id = await self.create_procedure_node(proc, provider_id)
 
@@ -281,7 +281,7 @@ class GraphStore:
                             to_id=step_ids[step.step_number],
                         )
 
-        return step_ids
+        return proc_node_id, step_ids
 
     async def link_step_to_entity(
         self, step_node_id: str, entity_label: str, provider_id: str
@@ -610,6 +610,108 @@ class GraphStore:
             "neighbours": neighbours,
         }
 
+    # ── Targeted traversal ─────────────────────────────
+
+    async def traverse(
+        self,
+        node_id: str,
+        provider_id: str,
+        edge_types: list[str] | None = None,
+        node_types: list[str] | None = None,
+        direction: str = "both",
+        depth: int = 1,
+        limit: int = 50,
+    ) -> dict:
+        """Walk the graph from a node with optional edge/node type filtering.
+
+        Args:
+            node_id: Starting node element ID.
+            edge_types: Only follow these edge types (None = all).
+            node_types: Only return nodes of these types (None = all).
+            direction: 'out', 'in', or 'both'.
+            depth: Max hops from start node.
+            limit: Max nodes to return.
+
+        Returns:
+            {nodes: [...], edges: [...], start_node: {...}}
+        """
+        # Build the relationship filter for Cypher
+        if direction == "out":
+            rel_pattern = "-[r]->"
+        elif direction == "in":
+            rel_pattern = "<-[r]-"
+        else:
+            rel_pattern = "-[r]-"
+
+        # Edge type filter
+        edge_filter = ""
+        if edge_types:
+            edge_types_str = "|".join(edge_types)
+            rel_pattern = rel_pattern.replace("[r]", f"[r:{edge_types_str}]")
+
+        # Node type filter
+        node_filter = ""
+        if node_types:
+            labels_check = " OR ".join(f"m:{nt}" for nt in node_types)
+            node_filter = f"AND ({labels_check})"
+
+        query = f"""
+        MATCH (start) WHERE elementId(start) = $node_id AND start.provider_id = $provider_id
+        MATCH path = (start){rel_pattern}(m {{provider_id: $provider_id}})
+        WHERE length(path) <= $depth {node_filter}
+        WITH DISTINCT m, start,
+             [r IN relationships(path) |
+                 {{source: elementId(startNode(r)), target: elementId(endNode(r)), type: type(r)}}
+             ] AS path_edges
+        UNWIND path_edges AS edge
+        WITH collect(DISTINCT {{
+            id: elementId(m),
+            label: labels(m)[0],
+            properties: properties(m)
+        }}) AS raw_nodes,
+        collect(DISTINCT edge) AS raw_edges,
+        start
+        RETURN raw_nodes[..{limit}] AS nodes,
+               raw_edges AS edges,
+               elementId(start) AS start_id,
+               labels(start)[0] AS start_label,
+               properties(start) AS start_props
+        """
+
+        async with self.driver.session() as session:
+            result = await session.run(
+                query,
+                node_id=node_id,
+                provider_id=provider_id,
+                depth=depth,
+            )
+            record = await result.single()
+
+        if not record:
+            return {"nodes": [], "edges": [], "start_node": None}
+
+        nodes = [
+            {
+                "id": n["id"],
+                "label": n["label"],
+                "properties": {k: v for k, v in n["properties"].items() if k != "provider_id"},
+            }
+            for n in record["nodes"]
+        ]
+
+        edges = [
+            {"source": e["source"], "target": e["target"], "type": e["type"]}
+            for e in record["edges"]
+        ]
+
+        start_node = {
+            "id": record["start_id"],
+            "label": record["start_label"],
+            "properties": {k: v for k, v in record["start_props"].items() if k != "provider_id"},
+        }
+
+        return {"nodes": nodes, "edges": edges, "start_node": start_node}
+
     # ── Provider management ───────────────────────────
 
     async def create_provider_node(self, provider: ContextProvider) -> None:
@@ -810,3 +912,91 @@ class GraphStore:
                 )
                 for r in records
             ]
+
+    # ── Schema introspection + exact lookup + Cypher ──
+
+    async def get_schema(self, provider_id: str) -> dict:
+        """Return the graph schema: node types with counts and edge types with from→to."""
+        node_query = """
+        MATCH (n {provider_id: $provider_id})
+        WITH labels(n)[0] AS label, count(n) AS count, collect(keys(n))[0] AS sample_keys
+        RETURN label, count, sample_keys
+        ORDER BY count DESC
+        """
+        edge_query = """
+        MATCH (a {provider_id: $provider_id})-[r]->(b {provider_id: $provider_id})
+        WITH type(r) AS edge_type, labels(a)[0] AS from_label, labels(b)[0] AS to_label, count(r) AS count
+        RETURN edge_type, from_label, to_label, count
+        ORDER BY count DESC
+        """
+        async with self.driver.session() as session:
+            node_result = await session.run(node_query, provider_id=provider_id)
+            node_records = await node_result.data()
+            edge_result = await session.run(edge_query, provider_id=provider_id)
+            edge_records = await edge_result.data()
+
+        return {
+            "node_types": [
+                {"label": r["label"], "count": r["count"],
+                 "properties": [k for k in (r["sample_keys"] or []) if k != "provider_id"]}
+                for r in node_records
+            ],
+            "edge_types": [
+                {"type": r["edge_type"], "from": r["from_label"], "to": r["to_label"], "count": r["count"]}
+                for r in edge_records
+            ],
+        }
+
+    async def find_exact(
+        self, provider_id: str, label_or_name: str, node_type: str | None = None
+    ) -> list[GraphNode]:
+        """Exact (case-insensitive) lookup by label, name, or table_name property."""
+        type_filter = f"AND n:{node_type}" if node_type else ""
+        query = f"""
+        MATCH (n {{provider_id: $provider_id}})
+        WHERE (toLower(n.label) = toLower($search)
+            OR toLower(n.name) = toLower($search)
+            OR toLower(n.table_name) = toLower($search))
+          {type_filter}
+        RETURN elementId(n) AS node_id,
+               labels(n)[0] AS label,
+               properties(n) AS props
+        LIMIT 10
+        """
+        async with self.driver.session() as session:
+            result = await session.run(query, provider_id=provider_id, search=label_or_name)
+            records = await result.data()
+        return [
+            GraphNode(
+                node_id=r["node_id"], label=r["label"],
+                properties={k: v for k, v in r["props"].items() if k != "provider_id"},
+            )
+            for r in records
+        ]
+
+    async def run_cypher(
+        self, provider_id: str, cypher: str, limit: int = 25
+    ) -> list[dict]:
+        """Run a read-only Cypher query scoped to a provider. Returns raw records."""
+        cypher_upper = cypher.upper().strip()
+        for keyword in ("CREATE", "DELETE", "MERGE", "SET ", "REMOVE", "DROP"):
+            if keyword in cypher_upper:
+                return [{"error": f"Write operations not allowed via Cypher tool. Found: {keyword}"}]
+
+        if "LIMIT" not in cypher_upper:
+            cypher = cypher.rstrip().rstrip(";") + f"\nLIMIT {limit}"
+
+        async with self.driver.session() as session:
+            result = await session.run(cypher, provider_id=provider_id)
+            records = await result.data()
+
+        cleaned = []
+        for r in records:
+            row = {}
+            for k, v in r.items():
+                if isinstance(v, dict):
+                    row[k] = {pk: pv for pk, pv in v.items() if pk != "provider_id"}
+                else:
+                    row[k] = v
+            cleaned.append(row)
+        return cleaned

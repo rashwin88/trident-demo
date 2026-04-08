@@ -16,6 +16,7 @@ class DocumentType(str, Enum):
     CSV = "csv"
     SOP = "sop"
     DDL = "ddl"
+    WEB = "web"
 
 
 class PipelineStage(str, Enum):

@@ -21,6 +21,8 @@ LLM_PROVIDER=anthropic          # or openai
 LLM_MODEL=claude-sonnet-4-5     # or gpt-4o
 ANTHROPIC_API_KEY=sk-ant-...    # if using anthropic
 OPENAI_API_KEY=sk-...           # required for embeddings + optional for LLM
+EXTRACTION_DENSITY=medium       # low | medium | high — controls extraction detail per chunk
+EXTRACTION_CONCURRENCY=4        # parallel LLM calls for chunk extraction (default 4)
 ```
 
 ### 2. Start all services
@@ -52,9 +54,10 @@ You'll land on the **Providers** tab. From here:
 
 1. Click **Create Provider** — give it a name and description
 2. Click **Open** on your new provider — takes you to the Ingest tab
-3. Drop a document and click **Ingest**
+3. Drop a document and click **Ingest** (or switch to Web mode to ingest a URL with optional crawl)
 4. Switch to **Graph** to explore the knowledge graph
 5. Switch to **Query** to ask questions
+6. Switch to **Agent** for interactive, multi-turn exploration via the LangGraph agent
 
 ## Clean Start (wipe all data)
 

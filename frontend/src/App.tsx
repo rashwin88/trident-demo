@@ -1,18 +1,17 @@
 import { useState } from 'react'
-import type { ReasoningSubgraph } from './types'
 import { JobProvider, useJobs } from './context/JobContext'
 import ProviderSelector from './components/ProviderSelector'
 import ProvidersPanel from './components/ProvidersPanel'
 import UploadPanel from './components/UploadPanel'
 import PipelineView from './components/PipelineView'
-import ChatPanel from './components/ChatPanel'
-import GraphViewer from './components/GraphViewer'
 import GraphExplorer from './components/GraphExplorer'
 import StatusPanel from './components/StatusPanel'
+import AgentPanel from './components/AgentPanel'
+import DocsPanel from './components/docs/DocsPanel'
 import ToastContainer from './components/ToastContainer'
 import styles from './App.module.css'
 
-type Tab = 'providers' | 'ingest' | 'explore' | 'graph' | 'status'
+type Tab = 'providers' | 'ingest' | 'graph' | 'agent' | 'docs' | 'status'
 
 const NAV_ITEMS: { id: Tab; label: string; icon: JSX.Element }[] = [
   {
@@ -44,11 +43,21 @@ const NAV_ITEMS: { id: Tab; label: string; icon: JSX.Element }[] = [
     ),
   },
   {
-    id: 'explore',
-    label: 'Query',
+    id: 'agent',
+    label: 'Agent',
     icon: (
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-        <circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" />
+        <path d="M12 2a4 4 0 0 1 4 4v2a4 4 0 0 1-8 0V6a4 4 0 0 1 4-4z" />
+        <path d="M16 14H8a4 4 0 0 0-4 4v2h16v-2a4 4 0 0 0-4-4z" />
+      </svg>
+    ),
+  },
+  {
+    id: 'docs',
+    label: 'Docs',
+    icon: (
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" /><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
       </svg>
     ),
   },
@@ -65,7 +74,6 @@ const NAV_ITEMS: { id: Tab; label: string; icon: JSX.Element }[] = [
 
 function AppInner() {
   const [providerId, setProviderId] = useState<string | null>(null)
-  const [reasoning, setReasoning] = useState<ReasoningSubgraph | null>(null)
   const [tab, setTab] = useState<Tab>('providers')
   const [collapsed, setCollapsed] = useState(false)
   const { activeJobCount } = useJobs()
@@ -160,13 +168,18 @@ function AppInner() {
           </div>
         </div>
 
-        <div className={styles.tabContent} style={{ display: tab === 'explore' ? 'flex' : 'none' }}>
-          <div className={styles.exploreLayout}>
-            <div className={`${styles.card} ${styles.chatCol}`}>
-              <ChatPanel providerId={providerId} onReasoning={setReasoning} />
+        <div className={styles.tabContent} style={{ display: tab === 'agent' ? 'flex' : 'none' }}>
+          <div className={styles.fullLayout}>
+            <div className={styles.card}>
+              <AgentPanel providerId={providerId} />
             </div>
-            <div className={`${styles.card} ${styles.graphCol}`}>
-              <GraphViewer reasoning={reasoning} />
+          </div>
+        </div>
+
+        <div className={styles.tabContent} style={{ display: tab === 'docs' ? 'flex' : 'none' }}>
+          <div className={styles.fullLayout}>
+            <div className={styles.card}>
+              <DocsPanel />
             </div>
           </div>
         </div>

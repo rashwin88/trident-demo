@@ -138,6 +138,25 @@ class KnowledgeStore:
             )
         return entries
 
+    def get_by_chunk_ids(
+        self, provider_id: str, chunk_ids: list[str]
+    ) -> dict[str, str]:
+        """Fetch chunk texts by their IDs. Returns {chunk_id: text}."""
+        name = self._collection_name(provider_id)
+        if not utility.has_collection(name) or not chunk_ids:
+            return {}
+
+        col = Collection(name)
+        col.load()
+        # Build expression for IN query
+        ids_str = ", ".join(f'"{cid}"' for cid in chunk_ids)
+        results = col.query(
+            expr=f"chunk_id in [{ids_str}]",
+            output_fields=["chunk_id", "text", "source_file"],
+            limit=len(chunk_ids),
+        )
+        return {r["chunk_id"]: r["text"] for r in results}
+
     def list_collections(self) -> list[str]:
         return [c for c in utility.list_collections() if c.startswith("ks_")]
 

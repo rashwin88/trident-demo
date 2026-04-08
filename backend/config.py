@@ -31,6 +31,12 @@ class Settings(BaseSettings):
     CHUNK_SIZE: int = 512
     CHUNK_OVERLAP: int = 64
 
+    # Extraction density: low | medium | high
+    EXTRACTION_DENSITY: str = "medium"
+
+    # Parallel chunk extraction (number of concurrent LLM calls)
+    EXTRACTION_CONCURRENCY: int = 4
+
     model_config = {"env_file": ".env", "extra": "ignore"}
 
 

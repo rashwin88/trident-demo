@@ -3,48 +3,58 @@ import logging
 
 import dspy
 
+from config import settings
 from stores.graph import EDGE_VOCABULARY_LIST
 
 logger = logging.getLogger(__name__)
 
+# ── Density presets ──────────────────────────────────
 
-# ── DSPy Signatures ──────────────────────────────────
+DENSITY_PROMPTS = {
+    "low": (
+        "Extract only the most important entities (3-5), concepts (1-3), "
+        "relationships (2-4), and propositions (2-4). "
+        "Focus on the core facts — skip minor details."
+    ),
+    "medium": (
+        "Extract a balanced set of entities (5-10), concepts (2-5), "
+        "relationships (4-8), and propositions (4-8). "
+        "Capture the main facts and their connections."
+    ),
+    "high": (
+        "Extract comprehensively: all entities, concepts, relationships, "
+        "and propositions you can identify. Be thorough — capture every "
+        "fact, name, term, and connection in the text."
+    ),
+}
 
 
-class NamedEntitySignature(dspy.Signature):
-    """Extract named entities from a telecom/business document chunk.
-    Return a JSON list of {label, entity_type, description} objects."""
+# ── Unified Extraction Signature ─────────────────────
+
+
+class UnifiedExtractionSignature(dspy.Signature):
+    """Extract a knowledge graph from this document chunk in a single pass.
+
+    Return a JSON object with four arrays:
+    {
+      "entities": [{label, entity_type, description}],
+      "concepts": [{name, definition, aliases}],
+      "relationships": [{source_label, edge_type, target_label, confidence}],
+      "propositions": [{subject, predicate, object}]
+    }
+
+    Rules:
+    - entity_type: Person, Organization, Location, Device, Circuit, Service, etc.
+    - edge_type MUST come from the allowed_edges list
+    - relationships MUST use labels from the entities you extracted
+    - propositions are factual triples grounded in the text
+    - Connect propositions to entities: use entity labels as subject/object where possible
+    """
 
     chunk_text: str = dspy.InputField()
-    entities: str = dspy.OutputField()
-
-
-class ConceptSignature(dspy.Signature):
-    """Extract key concepts and their definitions from this document chunk.
-    Return a JSON list of {name, definition, aliases} objects."""
-
-    chunk_text: str = dspy.InputField()
-    concepts: str = dspy.OutputField()
-
-
-class RelationshipSignature(dspy.Signature):
-    """Extract relationships between the provided entities.
-    Only use entity labels from the provided list.
-    Edge types must come from the allowed vocabulary.
-    Return a JSON list of {source_label, edge_type, target_label, confidence} objects."""
-
-    chunk_text: str = dspy.InputField()
-    entity_labels: str = dspy.InputField()
     allowed_edges: str = dspy.InputField()
-    relationships: str = dspy.OutputField()
-
-
-class PropositionSignature(dspy.Signature):
-    """Extract factual propositions as (subject, predicate, object) triples.
-    Return a JSON list of {subject, predicate, object} objects."""
-
-    chunk_text: str = dspy.InputField()
-    propositions: str = dspy.OutputField()
+    density_instruction: str = dspy.InputField()
+    extraction: str = dspy.OutputField()
 
 
 class ProcedureSignature(dspy.Signature):
@@ -69,44 +79,50 @@ class DBSemanticsSignature(dspy.Signature):
 
 
 class FullExtractionPipeline:
-    """Runs all extraction modules on a single chunk."""
+    """Runs extraction on chunks. Uses a single unified LLM call per chunk."""
 
-    def __init__(self) -> None:
-        self.entity_mod = dspy.ChainOfThought(NamedEntitySignature)
-        self.concept_mod = dspy.ChainOfThought(ConceptSignature)
-        self.rel_mod = dspy.ChainOfThought(RelationshipSignature)
-        self.prop_mod = dspy.ChainOfThought(PropositionSignature)
-        self.procedure_mod = dspy.ChainOfThought(ProcedureSignature)
-        self.db_semantics_mod = dspy.ChainOfThought(DBSemanticsSignature)
+    def __init__(self, density: str | None = None) -> None:
+        self._density = density or settings.EXTRACTION_DENSITY
+        self._unified_mod = dspy.ChainOfThought(UnifiedExtractionSignature)
+        self._procedure_mod = dspy.ChainOfThought(ProcedureSignature)
+        self._db_semantics_mod = dspy.ChainOfThought(DBSemanticsSignature)
+
+    @property
+    def density(self) -> str:
+        return self._density
+
+    def extract_unified(self, chunk_text: str) -> dict:
+        """Single LLM call → entities + concepts + relationships + propositions."""
+        density_instruction = DENSITY_PROMPTS.get(self._density, DENSITY_PROMPTS["medium"])
+
+        result = self._unified_mod(
+            chunk_text=chunk_text,
+            allowed_edges=json.dumps(EDGE_VOCABULARY_LIST),
+            density_instruction=density_instruction,
+        )
+
+        parsed = _parse_json_object(result.extraction, "unified_extraction")
+        if not parsed:
+            return {"entities": [], "concepts": [], "relationships": [], "propositions": []}
+
+        return {
+            "entities": parsed.get("entities", []) if isinstance(parsed.get("entities"), list) else [],
+            "concepts": parsed.get("concepts", []) if isinstance(parsed.get("concepts"), list) else [],
+            "relationships": parsed.get("relationships", []) if isinstance(parsed.get("relationships"), list) else [],
+            "propositions": parsed.get("propositions", []) if isinstance(parsed.get("propositions"), list) else [],
+        }
 
     def extract_entities(self, chunk_text: str) -> list[dict]:
-        result = self.entity_mod(chunk_text=chunk_text)
-        return _parse_json_list(result.entities, "entities")
-
-    def extract_concepts(self, chunk_text: str) -> list[dict]:
-        result = self.concept_mod(chunk_text=chunk_text)
-        return _parse_json_list(result.concepts, "concepts")
-
-    def extract_relationships(
-        self, chunk_text: str, entity_labels: list[str]
-    ) -> list[dict]:
-        result = self.rel_mod(
-            chunk_text=chunk_text,
-            entity_labels=json.dumps(entity_labels),
-            allowed_edges=json.dumps(EDGE_VOCABULARY_LIST),
-        )
-        return _parse_json_list(result.relationships, "relationships")
-
-    def extract_propositions(self, chunk_text: str) -> list[dict]:
-        result = self.prop_mod(chunk_text=chunk_text)
-        return _parse_json_list(result.propositions, "propositions")
+        """Extract only entities (used for per-step entity extraction in SOPs)."""
+        result = self.extract_unified(chunk_text)
+        return result["entities"]
 
     def extract_procedure(self, chunk_text: str) -> dict | None:
-        result = self.procedure_mod(chunk_text=chunk_text)
+        result = self._procedure_mod(chunk_text=chunk_text)
         return _parse_json_object(result.procedure, "procedure")
 
     def extract_db_semantics(self, ddl_text: str) -> dict | None:
-        result = self.db_semantics_mod(ddl_text=ddl_text)
+        result = self._db_semantics_mod(ddl_text=ddl_text)
         return _parse_json_object(result.semantics, "db_semantics")
 
 
@@ -144,7 +160,6 @@ def _clean_json(raw: str) -> str:
     text = raw.strip()
     if text.startswith("```"):
         lines = text.split("\n")
-        # Remove first line (```json) and last line (```)
         lines = [l for l in lines if not l.strip().startswith("```")]
         text = "\n".join(lines)
     return text
