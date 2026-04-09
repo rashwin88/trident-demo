@@ -1,3 +1,17 @@
+"""Provider CRUD router and per-provider data exploration endpoints.
+
+A "provider" is the top-level tenant / workspace in Trident.  Each provider
+owns an isolated slice of the Neo4j graph, a Milvus knowledge-store
+collection, a procedural-store collection, and a graph-node index collection.
+
+This module exposes:
+  - CRUD for providers (list / create / get / patch / delete)
+  - Graph exploration: list nodes, stats, traverse, full graph, node detail
+  - Semantic search: graph-node search, chunk search, procedure search
+
+Consumed by the frontend ProviderSelector, GraphExplorer, and search panels.
+"""
+
 import logging
 from datetime import UTC, datetime
 
@@ -16,23 +30,33 @@ router = APIRouter(prefix="/providers", tags=["providers"])
 
 
 class CreateProviderRequest(BaseModel):
+    """Body for POST /providers.  All three fields are required."""
+
     provider_id: str
     name: str
     description: str
 
 
 class UpdateProviderRequest(BaseModel):
+    """Body for PATCH /providers/{provider_id}.  Supply only the fields to change."""
+
     name: str | None = None
     description: str | None = None
 
 
 @router.get("")
 async def list_providers() -> list[ContextProvider]:
+    """Return every registered provider (lightweight metadata only)."""
     return await graph_store.list_providers()
 
 
 @router.post("", status_code=201)
 async def create_provider(req: CreateProviderRequest) -> ContextProvider:
+    """Create a new provider and eagerly initialise all its backing-store collections.
+
+    If Milvus collection creation fails the Neo4j provider node is rolled back
+    so the system never has a half-initialised provider.
+    """
     if await graph_store.provider_exists(req.provider_id):
         raise HTTPException(400, f"Provider '{req.provider_id}' already exists")
 
@@ -63,6 +87,7 @@ async def create_provider(req: CreateProviderRequest) -> ContextProvider:
 
 @router.get("/{provider_id}")
 async def get_provider(provider_id: str) -> ContextProvider:
+    """Return a single provider's metadata.  404 if not found."""
     provider = await graph_store.get_provider(provider_id)
     if not provider:
         raise HTTPException(404, f"Provider '{provider_id}' not found")
@@ -71,6 +96,7 @@ async def get_provider(provider_id: str) -> ContextProvider:
 
 @router.patch("/{provider_id}")
 async def update_provider(provider_id: str, req: UpdateProviderRequest) -> ContextProvider:
+    """Partially update a provider's name and/or description."""
     if not await graph_store.provider_exists(provider_id):
         raise HTTPException(404, f"Provider '{provider_id}' not found")
 
@@ -86,6 +112,11 @@ async def update_provider(provider_id: str, req: UpdateProviderRequest) -> Conte
 
 @router.delete("/{provider_id}")
 async def delete_provider(provider_id: str):
+    """Delete a provider and wipe all its data from Neo4j and Milvus.
+
+    Removes the provider's graph nodes/edges, knowledge-store collection,
+    procedural-store collection, and graph-node index collection.
+    """
     if not await graph_store.provider_exists(provider_id):
         raise HTTPException(404, f"Provider '{provider_id}' not found")
 
@@ -103,6 +134,14 @@ async def delete_provider(provider_id: str):
 
 @router.get("/{provider_id}/nodes")
 async def list_nodes(provider_id: str, label: str | None = None, limit: int = 50):
+    """List graph nodes for a provider, optionally filtered by label.
+
+    Query params:
+        label: Neo4j node label to filter by (e.g. "Entity", "Procedure").
+        limit: Max nodes to return (default 50).
+
+    Returns a list of node dicts with id, labels, and properties.
+    """
     if not await graph_store.provider_exists(provider_id):
         raise HTTPException(404, f"Provider '{provider_id}' not found")
     nodes = await graph_store.list_nodes(provider_id, label=label, limit=limit)
@@ -111,6 +150,7 @@ async def list_nodes(provider_id: str, label: str | None = None, limit: int = 50
 
 @router.get("/{provider_id}/stats")
 async def get_stats(provider_id: str):
+    """Return aggregate statistics (node/edge counts by type) for a provider."""
     if not await graph_store.provider_exists(provider_id):
         raise HTTPException(404, f"Provider '{provider_id}' not found")
     stats = await graph_store.get_provider_stats(provider_id)
@@ -251,7 +291,13 @@ async def traverse_graph(
 
 @router.get("/{provider_id}/graph")
 async def get_full_graph(provider_id: str, limit: int = 300):
-    """Return the full graph (nodes + edges) for the explorer."""
+    """Return the full graph (nodes + edges) for the explorer.
+
+    Query params:
+        limit: Max number of nodes to return (default 300).
+
+    Response shape: {nodes: [...], edges: [...]}.
+    """
     if not await graph_store.provider_exists(provider_id):
         raise HTTPException(404, f"Provider '{provider_id}' not found")
     return await graph_store.get_full_graph(provider_id, limit=limit)

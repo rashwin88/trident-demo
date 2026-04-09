@@ -1,8 +1,27 @@
+"""
+Application configuration — all environment variables in one place.
+
+Uses Pydantic BaseSettings to read from .env file with type validation.
+Every configurable value in the system lives here. Defaults are set for
+local Docker Compose development. Production overrides via .env or
+environment variables.
+
+Consumed by every module that needs config (imported as `from config import settings`).
+"""
+
 from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
-    # LLM provider
+    """Trident application settings, loaded from .env file.
+
+    All values have sensible defaults for local Docker development.
+    Override via environment variables or .env file entries.
+    """
+
+    # ── LLM Provider ─────────────────────────────────
+    # Which LLM to use for extraction, query answering, and the agent.
+    # Options: "openai" (direct), "anthropic", "azure" (Azure OpenAI), "ollama"
     LLM_PROVIDER: str = "anthropic"  # openai | anthropic | ollama
     LLM_MODEL: str = "claude-sonnet-4-5"
 
@@ -36,8 +55,8 @@ class Settings(BaseSettings):
     MILVUS_PASSWORD: str = ""
 
     # Chunking
-    CHUNK_SIZE: int = 512
-    CHUNK_OVERLAP: int = 64
+    CHUNK_SIZE: int = 2048
+    CHUNK_OVERLAP: int = 128
 
     # Extraction density: low | medium | high
     EXTRACTION_DENSITY: str = "medium"

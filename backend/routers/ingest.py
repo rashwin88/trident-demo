@@ -1,3 +1,22 @@
+"""Document ingestion router — the entry point for feeding data into Trident.
+
+Exposes a single POST /ingest endpoint that accepts either a file upload or
+a URL.  The response is an SSE (Server-Sent Events) stream of PipelineEvent
+messages so the frontend PipelineLog component can render real-time progress.
+
+SSE event flow:
+  1. PARSE  — document parsed / chunked (Docling for PDFs, etc.)
+  2. EMBED  — chunks embedded via the configured embedding provider
+  3. GRAPH  — entities, concepts, propositions, procedures extracted and
+              merged into Neo4j; graph-node index updated in Milvus
+  4. DONE   — pipeline finished successfully
+  (ERROR)  — emitted if any stage fails
+
+For web ingestion with crawl_depth > 0, multiple pages are fetched and each
+page is piped through the full pipeline individually with per-page progress
+events.
+"""
+
 import logging
 
 from fastapi import APIRouter, File, Form, UploadFile
@@ -22,6 +41,14 @@ async def ingest_document(
     crawl_depth: int = Form(0),
     density: str = Form("medium"),
 ) -> EventSourceResponse:
+    """Ingest a document (file or URL) into a provider's knowledge graph.
+
+    Accepts multipart form data.  For file-based ingestion supply ``file``;
+    for web ingestion supply ``url`` (and optionally ``crawl_depth``).
+
+    Returns an SSE stream of PipelineEvent JSON objects so the UI can
+    display real-time progress through parse, embed, graph, and done stages.
+    """
     document_type = DocumentType(doc_type)
 
     # Validate: either file or url must be provided

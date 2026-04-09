@@ -1,3 +1,26 @@
+"""Document chunking module — splits parsed documents into embedding-ready chunks.
+
+Takes a ParseResult (produced by ingestion.parsers) and splits it into a list
+of KnowledgeChunk objects suitable for embedding and graph extraction.
+
+Primary strategy: Docling's HybridChunker, which is both token-aware (respects
+the embedding model's context window) and structure-aware (splits along heading
+and section boundaries rather than mid-sentence).
+
+Fallback strategy: A simple character-level sliding window with overlap, used
+only when no DoclingDocument is available (e.g., if a future parser bypasses
+Docling).
+
+Consumed by:
+    - ingestion.pipeline  (calls chunk_document as the second pipeline stage)
+
+Key design choices:
+    - Singleton chunker avoids re-creating the tokenizer on every call.
+    - contextualize() is called on each chunk to prepend heading breadcrumbs,
+      which dramatically improves embedding quality for out-of-context chunks.
+    - Chunk size and overlap are driven by config.settings.
+"""
+
 import logging
 from uuid import uuid4
 
@@ -17,7 +40,15 @@ _chunker: HybridChunker | None = None
 
 
 def _get_chunker() -> HybridChunker:
-    """Singleton HybridChunker — token-aware, structure-aware chunking."""
+    """Return the singleton HybridChunker, creating it on first call.
+
+    Uses OpenAI's cl100k_base tokenizer so token counts match the embedding
+    model. merge_peers=True allows adjacent small sections to be combined
+    into a single chunk, reducing the total number of embeddings.
+
+    Returns:
+        HybridChunker: A reusable chunker instance.
+    """
     global _chunker
     if _chunker is None:
         tokenizer = OpenAITokenizer(
@@ -36,9 +67,19 @@ def chunk_document(
     provider_id: str,
     source_file: str,
 ) -> list[KnowledgeChunk]:
-    """Chunk a parsed document using Docling's HybridChunker.
+    """Chunk a parsed document into KnowledgeChunk objects.
 
-    Falls back to simple text splitting if no DoclingDocument is available.
+    Prefers Docling's HybridChunker for structure-aware splitting.  Falls back
+    to a simple character sliding window if no DoclingDocument is available.
+
+    Args:
+        parse_result: Output of parse_document, containing text and the
+                      optional DoclingDocument.
+        provider_id:  ID of the data-provider that owns this document.
+        source_file:  Original filename, attached to each chunk for tracing.
+
+    Returns:
+        List of KnowledgeChunk objects ready for embedding and extraction.
     """
     doc = parse_result.docling_document
     chunker = _get_chunker()
@@ -60,7 +101,22 @@ def _chunk_with_docling(
     source_file: str,
     doc_type: DocumentType,
 ) -> list[KnowledgeChunk]:
-    """Use Docling's HybridChunker for structure-aware, token-aware chunking."""
+    """Split a DoclingDocument using HybridChunker.
+
+    Each raw chunk is passed through contextualize() which prepends the
+    heading hierarchy (e.g. "Chapter 3 > Section 3.2 > ...") so the chunk
+    text is self-contained when embedded in isolation.
+
+    Args:
+        doc:         The parsed DoclingDocument with structural annotations.
+        chunker:     Singleton HybridChunker instance.
+        provider_id: Data-provider ID attached to each chunk.
+        source_file: Original filename for provenance tracking.
+        doc_type:    Document type enum, carried through to the chunk model.
+
+    Returns:
+        List of KnowledgeChunk objects (empty chunks are filtered out).
+    """
     docling_chunks = list(chunker.chunk(doc))
     knowledge_chunks: list[KnowledgeChunk] = []
 
@@ -95,7 +151,22 @@ def _chunk_text_fallback(
     source_file: str,
     doc_type: DocumentType,
 ) -> list[KnowledgeChunk]:
-    """Fallback: character-level sliding window with overlap."""
+    """Fallback chunker: character-level sliding window with overlap.
+
+    Used only when a DoclingDocument is unavailable.  Unlike HybridChunker
+    this has no awareness of document structure, so chunk boundaries may
+    land mid-sentence.  The overlap region helps downstream embeddings
+    retain cross-boundary context.
+
+    Args:
+        text:        Full document text to split.
+        provider_id: Data-provider ID attached to each chunk.
+        source_file: Original filename for provenance tracking.
+        doc_type:    Document type enum, carried through to the chunk model.
+
+    Returns:
+        List of KnowledgeChunk objects with accurate char_start/char_end offsets.
+    """
     size = settings.CHUNK_SIZE
     overlap = settings.CHUNK_OVERLAP
 

@@ -1,3 +1,21 @@
+"""LangGraph conversational agent router.
+
+Exposes the /agent/chat SSE endpoint that streams the agent's multi-step
+reasoning trace to the frontend ChatPanel.  Also provides conversation
+lifecycle endpoints (list, delete).
+
+SSE event types emitted by POST /agent/chat:
+  - conversation_id — sent first so the frontend can track the session
+  - tool_call       — agent decided to invoke a tool (name + args)
+  - tool_result     — result returned by the tool
+  - answer          — final natural-language answer from the agent
+  - done            — stream complete
+  - error           — unrecoverable failure during agent execution
+
+Conversations are held in an in-memory ConversationStore (agent.memory)
+and use a sliding-window strategy to keep context bounded.
+"""
+
 import json
 import logging
 from uuid import uuid4
@@ -15,6 +33,16 @@ router = APIRouter(prefix="/agent", tags=["agent"])
 
 
 class ChatRequest(BaseModel):
+    """Payload for POST /agent/chat.
+
+    Fields:
+        provider_id:     Which provider's knowledge graph the agent should query.
+        message:         The user's natural-language question.
+        conversation_id: Optional; omit to start a new conversation.
+        system_prompt:   Optional override for the agent's system prompt.
+        window_size:     Number of past messages to keep in the sliding window.
+    """
+
     provider_id: str
     message: str
     conversation_id: str | None = None
@@ -23,6 +51,8 @@ class ChatRequest(BaseModel):
 
 
 class ConversationInfo(BaseModel):
+    """Lightweight reference returned when listing conversations."""
+
     conversation_id: str
 
 

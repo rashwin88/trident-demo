@@ -1,3 +1,27 @@
+"""Semantic entity/concept resolution — deduplicates graph nodes via embeddings.
+
+When multiple document chunks mention the same real-world entity using
+different surface forms (e.g. "AWS" vs "Amazon Web Services"), naive
+string-matching would create duplicate nodes.  SemanticResolver embeds
+each candidate and checks for near-duplicates in the GraphNodeIndex (GN)
+before deciding whether to create a new Neo4j node or merge into an
+existing one.
+
+The GN index stores the Neo4j element-ID alongside each embedding, so a
+similarity hit yields the graph node directly -- no secondary fuzzy lookup
+is needed.
+
+Consumed by:
+    - ingestion.pipeline  (creates a SemanticResolver per ingestion run and
+      calls resolve_entities / resolve_concepts for each chunk's extractions)
+
+Key design choices:
+    - Separate similarity thresholds for entities (0.85) and concepts (0.82)
+      because concept names tend to be more lexically diverse.
+    - A per-run in-memory cache avoids redundant embedding calls when the
+      same entity appears in many chunks of the same document.
+"""
+
 import logging
 
 from models import ExtractedConcept, ExtractedNamedEntity
@@ -6,6 +30,10 @@ from stores.graph_index import GraphNodeIndex
 
 logger = logging.getLogger(__name__)
 
+# Cosine-similarity thresholds for merge decisions.  Entities use a higher
+# bar because false merges (collapsing two distinct entities) are more
+# damaging than false splits.  Concepts are slightly more permissive
+# because they tend to have more lexical variation.
 ENTITY_SIMILARITY_THRESHOLD = 0.85
 CONCEPT_SIMILARITY_THRESHOLD = 0.82
 
@@ -14,7 +42,16 @@ class SemanticResolver:
     """Deduplicates entities and concepts using embedding similarity.
 
     Every node gets an embedding signature stored in the GN index alongside
-    its Neo4j element ID — creating a direct link between vector and graph.
+    its Neo4j element ID -- creating a direct link between vector and graph.
+
+    Resolution flow (for both entities and concepts):
+        1. Check an in-memory cache (avoids repeat embeddings within a run).
+        2. Embed the candidate text and search the GN index for near-matches.
+        3. If a hit exceeds the similarity threshold, reuse its Neo4j node ID.
+        4. Otherwise, create a new node in Neo4j and index it in GN.
+
+    The resolver also provides index_procedure() to register SOP procedures
+    and their steps in GN for downstream retrieval.
     """
 
     def __init__(self, graph: GraphStore, gn_index: GraphNodeIndex) -> None:
@@ -23,11 +60,21 @@ class SemanticResolver:
         self._cache: dict[str, str] = {}  # node_key → neo4j_node_id
 
     def _entity_text(self, entity: ExtractedNamedEntity) -> str:
+        """Build the text string that will be embedded for this entity.
+
+        Includes the description (when present) so that entities with the
+        same label but different meanings can be distinguished.
+        """
         if entity.description:
             return f"{entity.label}: {entity.description}"
         return entity.label
 
     def _concept_text(self, concept: ExtractedConcept) -> str:
+        """Build the text string that will be embedded for this concept.
+
+        Includes the definition and aliases so that semantically equivalent
+        concepts (e.g. "ML" vs "Machine Learning") land close in vector space.
+        """
         parts = [concept.name]
         if concept.definition:
             parts.append(concept.definition)
@@ -83,7 +130,18 @@ class SemanticResolver:
     async def resolve_concept(
         self, concept: ExtractedConcept, provider_id: str
     ) -> tuple[str, bool]:
-        """Resolve a concept via semantic similarity. Returns (node_id, is_new)."""
+        """Resolve a concept via semantic similarity.
+
+        Mirrors resolve_entity but uses CONCEPT_SIMILARITY_THRESHOLD.
+
+        Args:
+            concept:     The extracted concept to resolve.
+            provider_id: Data-provider scope for the GN index search.
+
+        Returns:
+            Tuple of (neo4j_node_id, is_new) where is_new is True if a
+            new node was created.
+        """
         node_key = f"concept:{concept.name}"
         text = self._concept_text(concept)
 
@@ -119,6 +177,7 @@ class SemanticResolver:
     async def resolve_entities(
         self, entities: list[ExtractedNamedEntity], provider_id: str
     ) -> tuple[int, int]:
+        """Resolve a batch of entities, returning (total, new_count)."""
         new_count = 0
         for entity in entities:
             _, is_new = await self.resolve_entity(entity, provider_id)
@@ -129,6 +188,7 @@ class SemanticResolver:
     async def resolve_concepts(
         self, concepts: list[ExtractedConcept], provider_id: str
     ) -> tuple[int, int]:
+        """Resolve a batch of concepts, returning (total, new_count)."""
         new_count = 0
         for concept in concepts:
             _, is_new = await self.resolve_concept(concept, provider_id)

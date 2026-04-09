@@ -11,8 +11,8 @@ class TestSettings:
         assert s.LLM_PROVIDER == "anthropic"
         assert s.EMBEDDING_PROVIDER == "openai"
         assert s.EMBEDDING_DIM == 768
-        assert s.CHUNK_SIZE == 512
-        assert s.CHUNK_OVERLAP == 64
+        assert s.CHUNK_SIZE == 2048
+        assert s.CHUNK_OVERLAP == 128
 
     def test_override(self):
         s = Settings(

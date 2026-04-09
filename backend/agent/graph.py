@@ -1,4 +1,21 @@
-"""LangGraph agent that uses Trident tools to answer questions."""
+"""LangGraph agent graph — builds and runs the tool-calling reasoning loop.
+
+This module defines the LangGraph state machine that powers the /agent/chat
+endpoint.  The graph has two nodes:
+  - "agent"  — calls the LLM (Azure OpenAI or OpenAI) with tools bound
+  - "tools"  — executes whichever Trident tool the LLM selected
+
+The loop continues (agent -> tools -> agent -> ...) until the LLM produces
+a response with no tool calls, at which point the graph terminates.
+
+Key public API:
+  - build_agent_graph()      — compile the LangGraph state machine
+  - run_agent_streaming()    — execute the agent for one user turn, yielding
+                               AgentStep objects for the SSE stream
+  - AgentStep                — dataclass representing one step in the trace
+  - DEFAULT_SYSTEM_PROMPT    — the comprehensive system prompt that teaches
+                               the LLM how to use the Trident tool suite
+"""
 
 import json
 import logging
@@ -45,6 +62,7 @@ DEFAULT_SYSTEM_PROMPT = """You are an expert knowledge graph analyst with access
   - All entities referenced by a procedure's steps: `MATCH (p:Procedure {provider_id: $provider_id})-[:HAS_STEP]->(s:Step)-[:REFERENCES]->(e:Entity) RETURN p.name, s.step_number, e.label`
   - Shortest path: `MATCH (a:Entity {label:'X', provider_id: $provider_id}), (b:Entity {label:'Y', provider_id: $provider_id}), path=shortestPath((a)-[*..5]-(b)) RETURN path`
   - Entity connections: `MATCH (e:Entity {label:'X', provider_id: $provider_id})-[r]-(n) RETURN type(r), labels(n)[0], coalesce(n.label, n.name, '') LIMIT 20`
+  - **IMPORTANT Cypher syntax rules**: NEVER use `exists(n.property)` — it is removed in Neo4j 5. Use `n.property IS NOT NULL` instead. NEVER use `CALL { ... } IN TRANSACTIONS`.
 
 ## GRAPH STRUCTURE (typical)
 - **Document** —[CONTAINS]→ **Chunk** —[MENTIONS]→ **Entity**
@@ -91,6 +109,8 @@ from langchain_core.messages import BaseMessage
 
 
 class AgentState(TypedDict):
+    """LangGraph state: the running message list and active provider."""
+
     messages: Annotated[list[BaseMessage], add_messages]
     provider_id: str
 
@@ -99,7 +119,14 @@ class AgentState(TypedDict):
 
 
 def build_agent_graph():
-    """Build and compile the LangGraph agent."""
+    """Build and compile the LangGraph agent.
+
+    Constructs a two-node state graph (agent -> tools) with a conditional
+    edge: if the LLM response contains tool_calls the graph loops through
+    the ToolNode; otherwise it terminates.  The LLM is configured based on
+    settings.LLM_PROVIDER (azure or openai) with temperature=0 and
+    streaming=True.
+    """
 
     if settings.LLM_PROVIDER == "azure":
         llm = AzureChatOpenAI(
@@ -150,7 +177,17 @@ async def run_agent_streaming(
     user_message: str,
     provider_id: str,
 ) -> AsyncGenerator[AgentStep, None]:
-    """Run the agent and yield steps as they happen."""
+    """Run the agent for a single user turn and yield AgentSteps as they occur.
+
+    The method:
+      1. Appends the user message to the conversation's sliding-window memory
+      2. Pre-fetches the live graph schema so the LLM always has structure context
+      3. Builds a history summary from prior turns
+      4. Assembles the system prompt (base + provider + schema + history + nudges)
+      5. Streams the LangGraph execution, yielding tool_call / tool_result /
+         answer / error steps
+      6. Saves the final answer back into conversation memory
+    """
 
     # Add user message to memory
     conversation.add_message("user", user_message)
@@ -243,7 +280,13 @@ async def run_agent_streaming(
 
 
 def _build_history_summary(conversation: Conversation) -> str:
-    """Build a conversation summary from past messages (excluding the latest user message)."""
+    """Build a condensed conversation summary from past messages.
+
+    Excludes the most recent user message (which is the current turn) and
+    truncates individual messages to 300 chars.  Returns at most the last
+    10 messages formatted as ``ROLE: content`` lines prefixed with a header.
+    Returns an empty string if there is no prior history.
+    """
     msgs = conversation.get_messages()
     if len(msgs) <= 1:
         return ""
@@ -265,7 +308,11 @@ def _build_history_summary(conversation: Conversation) -> str:
 
 
 def _format_schema(schema: dict) -> str:
-    """Format the graph schema for the system prompt."""
+    """Format the live graph schema dict into a readable string for the system prompt.
+
+    Renders node types with counts and sample properties, and edge types
+    with source/target labels and counts.
+    """
     lines = []
 
     lines.append("Node types:")
@@ -289,13 +336,23 @@ STOP_WORDS = {
 
 
 def _extract_entities(text: str, entities: list[str]) -> None:
-    """Extract only proper nouns / named entities from text — not descriptions."""
+    """Extract only proper nouns / named entities from text — not descriptions.
+
+    Currently a no-op: answer text is too noisy for reliable extraction.
+    Entity collection is done exclusively via _extract_entities_from_result.
+    """
     # Don't extract from answer text — too noisy. Only from tool results.
     pass
 
 
 def _extract_entities_from_result(result: Any, entities: list[str]) -> None:
-    """Extract entity/concept names from tool results. Only short identifiers, not descriptions."""
+    """Extract entity/concept names from structured tool results.
+
+    Looks for 'label' and 'name' keys in dicts / lists-of-dicts.  Only
+    short identifiers (3-50 chars, not in STOP_WORDS) are kept.  For
+    semantic-search results with node_type Entity/Concept the name portion
+    before the first colon is also extracted.  Mutates ``entities`` in place.
+    """
     if isinstance(result, list):
         for item in result:
             if isinstance(item, dict):

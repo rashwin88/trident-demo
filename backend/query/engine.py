@@ -1,3 +1,19 @@
+"""Single-shot query engine — retrieval-augmented generation over the Trident stores.
+
+Implements an 8-step pipeline:
+  1. Embed the question
+  2. Semantic graph-node anchor (Milvus GN index)
+  3. Neighbourhood expansion (Neo4j BFS from anchor nodes)
+  4. Chunk retrieval (Milvus Knowledge Store ANN search)
+  5. Procedure retrieval (Milvus Procedural Store ANN search)
+  6. Context assembly (graph + chunks + procedures into text)
+  7. Answer generation (DSPy ChainOfThought with AnswerSignature)
+  8. Response packaging (answer + reasoning subgraph + provenance)
+
+Called by routers.query and does not maintain any conversation state.
+For multi-turn reasoning see agent.graph instead.
+"""
+
 import json
 import logging
 
@@ -12,7 +28,9 @@ from stores.procedural import ProceduralStore
 
 logger = logging.getLogger(__name__)
 
+# Minimum cosine-similarity score a procedure must reach to be included in context
 PROCEDURE_SIMILARITY_THRESHOLD = 0.75
+# Minimum score for a graph-node hit to be used as an anchor
 GRAPH_ANCHOR_THRESHOLD = 0.4
 
 
@@ -143,6 +161,11 @@ async def execute_query(
 
 
 def _format_graph_context(nodes: list[GraphNode]) -> str:
+    """Render a list of GraphNodes into a human-readable string for the LLM prompt.
+
+    Each node is displayed as ``[Label] key: value, ...`` with the provider_id
+    property stripped to avoid noise.
+    """
     if not nodes:
         return "No graph nodes found."
 
@@ -158,6 +181,7 @@ def _format_graph_context(nodes: list[GraphNode]) -> str:
 
 
 def _deduplicate_nodes(nodes: list[GraphNode]) -> list[GraphNode]:
+    """Remove duplicate GraphNodes by node_id, preserving first-seen order."""
     seen: set[str] = set()
     unique: list[GraphNode] = []
     for node in nodes:

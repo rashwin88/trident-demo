@@ -1,4 +1,21 @@
-"""LangGraph tools wrapping Trident's stores. Direct method calls, no HTTP."""
+"""LangGraph tools wrapping Trident's backing stores.
+
+Every tool in this module is a LangChain @tool that the LangGraph agent
+(agent.graph) can invoke during its reasoning loop.  The tools call the
+store layers (Neo4j via GraphStore, Milvus via KnowledgeStore /
+ProceduralStore / GraphNodeIndex) directly — no HTTP round-trips.
+
+Tools are split into two groups:
+  - READ_TOOLS:  trident_search, trident_find_exact, trident_get_node,
+                 trident_traverse, trident_get_chunks, trident_get_procedures,
+                 trident_get_stats, trident_get_schema, trident_cypher
+  - WRITE_TOOLS: trident_create_entity, trident_create_concept,
+                 trident_create_relationship
+
+ALL_TOOLS is the union and is what gets bound to the LLM in agent.graph.
+Individual tool docstrings are authored for the LLM's benefit (they appear
+in the function-calling schema) — see each @tool definition below.
+"""
 
 import json
 import logging
@@ -261,17 +278,24 @@ async def trident_create_relationship(
     source_label: str,
     edge_type: str,
     target_label: str,
+    description: str = "",
+    confidence: float = 1.0,
 ) -> str:
     """Create a relationship (edge) between two existing entities or concepts.
     Both source and target must already exist. Use edge types from the vocabulary:
-    RELATED_TO, PART_OF, INSTANCE_OF, GOVERNED_BY, TERMINATES_AT, PROVISIONED_FROM,
-    BILLED_ON, IMPLEMENTED_BY, DESCRIBED_BY, FLAGS, SUPERSEDES, SOURCED_FROM, etc."""
+    RELATED_TO, PART_OF, INSTANCE_OF, GOVERNED_BY, LOCATED_IN, DEPENDS_ON, OPERATES,
+    USES, ACQUIRED_BY, CONNECTS_TO, MANAGES, TERMINATES_AT, PROVISIONED_FROM,
+    IMPLEMENTED_BY, DESCRIBED_BY, SOURCED_FROM, FLAGS, SUPERSEDES, BILLED_ON,
+    RECONCILES_TO, CLASSIFIED_AS, OTHER. Provide a brief description for context."""
     from stores.graph import EDGE_VOCABULARY
     if edge_type not in EDGE_VOCABULARY:
         return json.dumps({"error": f"Invalid edge type '{edge_type}'. Valid types: {sorted(EDGE_VOCABULARY)}"})
 
-    await graph_store.create_edge(source_label, edge_type, target_label, provider_id)
-    return json.dumps({"created": True, "edge": f"{source_label} -[{edge_type}]-> {target_label}"})
+    await graph_store.create_edge(
+        source_label, edge_type, target_label, provider_id,
+        description=description, confidence=confidence,
+    )
+    return json.dumps({"created": True, "edge": f"{source_label} -[{edge_type}]-> {target_label}", "description": description})
 
 
 # ── Tool list ────────────────────────────────────────

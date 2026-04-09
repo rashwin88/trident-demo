@@ -167,6 +167,16 @@
   flex-shrink: 0;
 }
 
+.searchSpinnerLarge {
+  width: 16px;
+  height: 16px;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.6s linear infinite;
+  flex-shrink: 0;
+}
+
 .searchTypes {
   display: flex;
   gap: 0.3rem;
@@ -204,9 +214,52 @@
   border: 1px solid var(--border);
   border-radius: var(--radius);
   box-shadow: var(--shadow-lg);
-  max-height: 280px;
+  max-height: 320px;
   overflow-y: auto;
   z-index: 50;
+}
+
+.searchResultsHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.45rem 0.75rem;
+  border-bottom: 1px solid var(--border-light);
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.searchResultsClear {
+  font-size: 0.65rem;
+  color: var(--accent);
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-family: inherit;
+  font-weight: 500;
+  padding: 0.15rem 0.4rem;
+  border-radius: 4px;
+}
+
+.searchResultsClear:hover {
+  background: var(--accent-light);
+}
+
+.searchLoadingState {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 1rem 0.75rem;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+}
+
+.searchEmptyState {
+  padding: 1rem 0.75rem;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  text-align: center;
 }
 
 .searchResultItem {
@@ -595,6 +648,27 @@
 .neighbourType {
   font-size: 0.62rem;
   color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.confidenceBadge {
+  font-size: 0.55rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  background: var(--bg-surface);
+  padding: 0.05rem 0.3rem;
+  border-radius: 100px;
+}
+
+.neighbourDesc {
+  font-size: 0.6rem;
+  color: var(--text-muted);
+  font-style: italic;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .neighbourArrow {

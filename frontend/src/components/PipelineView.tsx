@@ -43,12 +43,10 @@ export default function PipelineView({ providerId }: Props) {
         break
       }
       if (e.stage === 'done') {
-        // Mark all as done
         STAGES.forEach((s) => { if (state[s] === 'active') state[s] = 'done' })
         break
       }
       if (STAGES.includes(e.stage)) {
-        // Mark previous stage as done
         if (currentStage && currentStage !== e.stage) {
           state[currentStage] = 'done'
         }
@@ -79,7 +77,6 @@ export default function PipelineView({ providerId }: Props) {
         totals = e.detail.running_totals as typeof totals
       }
     }
-    // Fallback from summary
     for (const e of events) {
       if (e.detail?.summary && e.stage === 'extract') {
         totals = {
@@ -122,12 +119,28 @@ export default function PipelineView({ providerId }: Props) {
     return { times, total }
   }, [events])
 
-  // Collected entities for live ticker
+  // Chunk extraction progress (processed / total)
+  const chunkProgress = useMemo(() => {
+    let total = 0
+    let completed = 0
+    for (const e of events) {
+      if (e.stage === 'extract' && e.detail?.progress && e.detail?.total) {
+        total = e.detail.total as number
+      }
+      if (e.stage === 'extract' && e.detail?.chunk_result) {
+        completed++
+      }
+    }
+    if (total === 0) return null
+    return { completed, total }
+  }, [events])
+
+  // Collected entities for live display
   const liveEntities = useMemo(() => {
-    const ents: { label: string; type: string }[] = []
+    const ents: { label: string; type: string; description: string }[] = []
     for (const e of events) {
       if (e.stage === 'extract' && e.detail?.new_entities) {
-        for (const ne of e.detail.new_entities as { label: string; type: string }[]) {
+        for (const ne of e.detail.new_entities as typeof ents) {
           if (!ents.find((x) => x.label === ne.label)) ents.push(ne)
         }
       }
@@ -135,12 +148,12 @@ export default function PipelineView({ providerId }: Props) {
     return ents
   }, [events])
 
-  // Collected concepts for live ticker
+  // Collected concepts
   const liveConcepts = useMemo(() => {
-    const concepts: { name: string }[] = []
+    const concepts: { name: string; definition: string }[] = []
     for (const e of events) {
       if (e.stage === 'extract' && e.detail?.new_concepts) {
-        for (const nc of e.detail.new_concepts as { name: string }[]) {
+        for (const nc of e.detail.new_concepts as typeof concepts) {
           if (!concepts.find((x) => x.name === nc.name)) concepts.push(nc)
         }
       }
@@ -150,7 +163,7 @@ export default function PipelineView({ providerId }: Props) {
 
   // Collected relationships
   const liveRelations = useMemo(() => {
-    const rels: { src: string; edge: string; tgt: string }[] = []
+    const rels: { src: string; edge: string; tgt: string; description?: string; confidence?: number }[] = []
     for (const e of events) {
       if (e.stage === 'extract' && e.detail?.new_relations) {
         for (const nr of e.detail.new_relations as typeof rels) {
@@ -248,6 +261,26 @@ export default function PipelineView({ providerId }: Props) {
           {stageTimes.total > 0 && (
             <span className={styles.metricDuration}>{stageTimes.total.toFixed(1)}s</span>
           )}
+        </div>
+      )}
+
+      {/* ── Chunk Extraction Progress Bar ─────────── */}
+      {chunkProgress && (
+        <div className={styles.chunkProgress}>
+          <div className={styles.chunkProgressHeader}>
+            <span className={styles.chunkProgressLabel}>
+              Extracting chunks
+            </span>
+            <span className={styles.chunkProgressCount}>
+              {chunkProgress.completed} / {chunkProgress.total}
+            </span>
+          </div>
+          <div className={styles.chunkBar}>
+            <div
+              className={`${styles.chunkBarFill} ${chunkProgress.completed === chunkProgress.total ? styles.chunkBarDone : ''}`}
+              style={{ width: `${(chunkProgress.completed / chunkProgress.total) * 100}%` }}
+            />
+          </div>
         </div>
       )}
 
@@ -398,60 +431,114 @@ function ChunkDetail({ metrics }: { metrics?: Record<string, unknown> }) {
   )
 }
 
-// ── Stage Detail: Extract ─────────────────────────
+// ── Stage Detail: Extract — columnar card stacks ──
 function ExtractDetail({
   entities, concepts, relations, totals,
 }: {
-  entities: { label: string; type: string }[]
-  concepts: { name: string }[]
-  relations: { src: string; edge: string; tgt: string }[]
+  entities: { label: string; type: string; description: string }[]
+  concepts: { name: string; definition: string }[]
+  relations: { src: string; edge: string; tgt: string; description?: string; confidence?: number }[]
   totals: { entities: number; concepts: number; relationships: number; propositions: number }
 }) {
+  const [expandedEntity, setExpandedEntity] = useState<number | null>(null)
+  const [expandedConcept, setExpandedConcept] = useState<number | null>(null)
+
   return (
-    <div>
+    <div className={styles.extractDetail}>
+      {/* Summary counters */}
       <div className={styles.detailGrid}>
         <div className={styles.detailCard}><span className={styles.detailCardLabel}>Entities</span><span className={styles.detailCardValue}>{totals.entities}</span></div>
         <div className={styles.detailCard}><span className={styles.detailCardLabel}>Concepts</span><span className={styles.detailCardValue}>{totals.concepts}</span></div>
         <div className={styles.detailCard}><span className={styles.detailCardLabel}>Relations</span><span className={styles.detailCardValue}>{totals.relationships}</span></div>
         <div className={styles.detailCard}><span className={styles.detailCardLabel}>Propositions</span><span className={styles.detailCardValue}>{totals.propositions}</span></div>
       </div>
-      {entities.length > 0 && (
-        <div className={styles.tickerSection}>
-          <span className={styles.tickerLabel}>Entities discovered</span>
-          <div className={styles.tickerGrid}>
-            {entities.slice(-30).map((e, i) => (
-              <span key={i} className={styles.tickerTag} title={e.type}>
-                <span className={styles.tickerDot} style={{ background: entityColor(e.type) }} />
-                {e.label}
-              </span>
-            ))}
+
+      {/* Three-column card stacks */}
+      <div className={styles.columnsRow}>
+        {/* Entities column */}
+        {entities.length > 0 && (
+          <div className={styles.cardColumn}>
+            <div className={styles.columnHeader}>
+              <span className={styles.columnDot} style={{ background: '#4f46e5' }} />
+              <span className={styles.columnTitle}>Entities</span>
+              <span className={styles.columnCount}>{entities.length}</span>
+            </div>
+            <div className={styles.columnScroll}>
+              {entities.map((ent, i) => (
+                <button
+                  key={i}
+                  className={`${styles.entityCard} ${expandedEntity === i ? styles.entityCardExpanded : ''}`}
+                  onClick={() => setExpandedEntity(expandedEntity === i ? null : i)}
+                >
+                  <div className={styles.entityCardTop}>
+                    <span className={styles.entityDot} style={{ background: entityColor(ent.type) }} />
+                    <span className={styles.entityLabel}>{ent.label}</span>
+                    <span className={styles.entityType}>{ent.type}</span>
+                  </div>
+                  {expandedEntity === i && ent.description && (
+                    <div className={styles.entityDesc}>{ent.description}</div>
+                  )}
+                </button>
+              ))}
+            </div>
           </div>
-        </div>
-      )}
-      {concepts.length > 0 && (
-        <div className={styles.tickerSection}>
-          <span className={styles.tickerLabel}>Concepts discovered</span>
-          <div className={styles.tickerGrid}>
-            {concepts.slice(-20).map((c, i) => (
-              <span key={i} className={`${styles.tickerTag} ${styles.tickerConcept}`}>{c.name}</span>
-            ))}
+        )}
+
+        {/* Concepts column */}
+        {concepts.length > 0 && (
+          <div className={styles.cardColumn}>
+            <div className={styles.columnHeader}>
+              <span className={styles.columnDot} style={{ background: '#7c3aed' }} />
+              <span className={styles.columnTitle}>Concepts</span>
+              <span className={styles.columnCount}>{concepts.length}</span>
+            </div>
+            <div className={styles.columnScroll}>
+              {concepts.map((con, i) => (
+                <button
+                  key={i}
+                  className={`${styles.conceptCard} ${expandedConcept === i ? styles.conceptCardExpanded : ''}`}
+                  onClick={() => setExpandedConcept(expandedConcept === i ? null : i)}
+                >
+                  <span className={styles.conceptName}>{con.name}</span>
+                  {expandedConcept === i && con.definition && (
+                    <div className={styles.conceptDef}>{con.definition}</div>
+                  )}
+                </button>
+              ))}
+            </div>
           </div>
-        </div>
-      )}
-      {relations.length > 0 && (
-        <div className={styles.tickerSection}>
-          <span className={styles.tickerLabel}>Relationships</span>
-          <div className={styles.relationList}>
-            {relations.slice(-15).map((r, i) => (
-              <div key={i} className={styles.relationRow}>
-                <span className={styles.relationEntity}>{r.src}</span>
-                <span className={styles.relationEdge}>{r.edge}</span>
-                <span className={styles.relationEntity}>{r.tgt}</span>
-              </div>
-            ))}
+        )}
+
+        {/* Relationships column */}
+        {relations.length > 0 && (
+          <div className={styles.cardColumn}>
+            <div className={styles.columnHeader}>
+              <span className={styles.columnDot} style={{ background: '#059669' }} />
+              <span className={styles.columnTitle}>Relationships</span>
+              <span className={styles.columnCount}>{relations.length}</span>
+            </div>
+            <div className={styles.columnScroll}>
+              {relations.map((rel, i) => (
+                <div key={i} className={styles.relRow} title={rel.description || ''}>
+                  <span className={styles.relNode} style={{ background: '#4f46e5' }}>
+                    {rel.src.length > 20 ? rel.src.slice(0, 18) + '…' : rel.src}
+                  </span>
+                  <span className={styles.relArrow}>
+                    <span className={styles.relEdgeLabel}>{rel.edge}</span>
+                    {rel.confidence != null && (
+                      <span className={styles.relConfidence}>{Math.round(rel.confidence * 100)}%</span>
+                    )}
+                    →
+                  </span>
+                  <span className={styles.relNode} style={{ background: '#4f46e5' }}>
+                    {rel.tgt.length > 20 ? rel.tgt.slice(0, 18) + '…' : rel.tgt}
+                  </span>
+                </div>
+              ))}
+            </div>
           </div>
-        </div>
-      )}
+        )}
+      </div>
     </div>
   )
 }
@@ -472,7 +559,7 @@ function ResolveDetail({ metrics }: { metrics?: Record<string, unknown> }) {
       </div>
       {merged > 0 && (
         <p className={styles.resolveNote}>
-          {merged} duplicate entit{merged === 1 ? 'y was' : 'ies were'} merged via fuzzy matching
+          {merged} duplicate entit{merged === 1 ? 'y was' : 'ies were'} merged via semantic similarity
         </p>
       )}
     </div>

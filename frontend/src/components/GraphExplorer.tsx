@@ -15,13 +15,13 @@ const NODE_COLORS: Record<string, string> = {
 }
 
 const NODE_SIZES: Record<string, number> = {
-  Procedure: 14,
-  Document: 10,
-  Entity: 9,
-  Concept: 8,
-  Step: 7,
-  TableSchema: 9,
-  Proposition: 5,
+  Procedure: 12,
+  Document: 9,
+  Entity: 8,
+  Concept: 7,
+  Step: 6,
+  TableSchema: 8,
+  Proposition: 4,
   Chunk: 3,
 }
 
@@ -82,20 +82,33 @@ export default function GraphExplorer({ providerId }: Props) {
   const [searchType, setSearchType] = useState<string>('all')
   const [searchResults, setSearchResults] = useState<SearchHit[]>([])
   const [searching, setSearching] = useState(false)
+  const [searchDone, setSearchDone] = useState(false)
   const searchTimeout = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  // Resize observer — measures actual graph container dimensions
+  // Simple zoomToFit — component is only mounted when tab is visible,
+  // so the container always has real dimensions.
+  const doZoomToFit = useCallback((duration = 400) => {
+    fgRef.current?.zoomToFit(duration, 40)
+  }, [])
+
+  // Resize observer
   useEffect(() => {
     const el = containerRef.current
     if (!el) return
-    const ro = new ResizeObserver(() => {
-      // Measure actual graph container (not body — excludes sidebar)
-      const rect = el.getBoundingClientRect()
-      setDimensions({ width: Math.floor(rect.width), height: Math.floor(rect.height) })
+    const ro = new ResizeObserver((entries) => {
+      const { width, height } = entries[0].contentRect
+      if (width > 0 && height > 0) {
+        setDimensions({ width: Math.floor(width), height: Math.floor(height) })
+      }
     })
     ro.observe(el)
     return () => ro.disconnect()
   }, [])
+
+  // Zoom-to-fit when the force engine finishes settling
+  const handleEngineStop = useCallback(() => {
+    doZoomToFit(300)
+  }, [doZoomToFit])
 
   // Load graph data
   useEffect(() => {
@@ -104,14 +117,9 @@ export default function GraphExplorer({ providerId }: Props) {
     setSelectedNode(null)
     setFocusNodeId(null)
     setHighlightedIds(new Set())
+
     fetchGraph(providerId)
-      .then((data) => {
-        setGraphData(data)
-        // Auto zoom-to-fit after data loads
-        setTimeout(() => {
-          fgRef.current?.zoomToFit(400, 60)
-        }, 500)
-      })
+      .then((data) => setGraphData(data))
       .catch(() => setGraphData(null))
       .finally(() => setLoading(false))
   }, [providerId])
@@ -121,11 +129,9 @@ export default function GraphExplorer({ providerId }: Props) {
     setLoading(true)
     setFocusNodeId(null)
     setHighlightedIds(new Set())
+
     fetchGraph(providerId)
-      .then((data) => {
-        setGraphData(data)
-        setTimeout(() => fgRef.current?.zoomToFit(400, 60), 500)
-      })
+      .then((data) => setGraphData(data))
       .catch(() => {})
       .finally(() => setLoading(false))
   }, [providerId])
@@ -138,12 +144,15 @@ export default function GraphExplorer({ providerId }: Props) {
     return Object.entries(counts).sort(([, a], [, b]) => b - a)
   }, [graphData])
 
-  // Re-fit when container size changes (e.g., sidebar open/close)
+  // Re-fit when sidebar opens/closes (container width changes)
+  const prevWidthRef = useRef(dimensions.width)
   useEffect(() => {
-    if (fgRef.current && fgData.nodes.length > 0) {
-      setTimeout(() => fgRef.current?.zoomToFit(300, 50), 100)
+    const widthDelta = Math.abs(dimensions.width - prevWidthRef.current)
+    prevWidthRef.current = dimensions.width
+    if (widthDelta > 50) {
+      setTimeout(() => doZoomToFit(300), 150)
     }
-  }, [dimensions.width])
+  }, [dimensions.width, doZoomToFit])
 
   const toggleType = (label: string) => {
     setHiddenTypes((prev) => {
@@ -162,9 +171,11 @@ export default function GraphExplorer({ providerId }: Props) {
     if (!query.trim() || !providerId) {
       setSearchResults([])
       setSearching(false)
+      setSearchDone(false)
       return
     }
     setSearching(true)
+    setSearchDone(false)
     try {
       const typeFilter = searchType === 'all' ? undefined : searchType
       const hits = await searchNodes(providerId, query.trim(), typeFilter)
@@ -173,19 +184,22 @@ export default function GraphExplorer({ providerId }: Props) {
       setSearchResults([])
     } finally {
       setSearching(false)
+      setSearchDone(true)
     }
   }, [providerId, searchType])
 
   const handleSearch = useCallback((query: string) => {
     setSearchQuery(query)
+    setSearchDone(false)
     if (searchTimeout.current) clearTimeout(searchTimeout.current)
     if (!query.trim()) {
       setSearchResults([])
       setSearching(false)
+      setSearchDone(false)
       return
     }
-    setSearching(true) // show spinner immediately
-    searchTimeout.current = setTimeout(() => runSearch(query), 300)
+    setSearching(true)
+    searchTimeout.current = setTimeout(() => runSearch(query), 400)
   }, [runSearch])
 
   const handleSearchKeyDown = useCallback((e: React.KeyboardEvent) => {
@@ -197,6 +211,7 @@ export default function GraphExplorer({ providerId }: Props) {
       setSearchQuery('')
       setSearchResults([])
       setSearching(false)
+      setSearchDone(false)
     }
   }, [searchQuery, runSearch])
 
@@ -272,12 +287,24 @@ export default function GraphExplorer({ providerId }: Props) {
         source: e.source,
         target: e.target,
         edgeType: e.type,
+        edgeDescription: (e as any).description || '',
+        edgeConfidence: (e as any).confidence as number | null,
         color: EDGE_COLORS[e.type] || '#d1d5db',
         highlighted: highlightedIds.has(e.source) && highlightedIds.has(e.target),
       }))
 
     return { nodes, links }
   }, [graphData, hiddenTypes, highlightedIds, focusNodeId])
+
+  // Configure d3 forces whenever graph data changes — runs after render
+  // so fgRef.current is guaranteed to exist
+  useEffect(() => {
+    if (!fgRef.current || fgData.nodes.length === 0) return
+    const fg = fgRef.current
+    fg.d3Force('charge')?.strength(-100).distanceMax(300)
+    fg.d3Force('link')?.distance(40)
+    fg.d3Force('center')?.strength(0.1)
+  }, [fgData.nodes.length])
 
   // Click node → toggle focus: highlight parent + direct children. Click same node to unfocus.
   const handleNodeClick = useCallback(
@@ -401,7 +428,7 @@ export default function GraphExplorer({ providerId }: Props) {
           setTimeout(() => fg.zoom(2.5, 400), 100)
         } else {
           // Node not found in rendered data — just zoom to fit
-          setTimeout(() => fg.zoomToFit(400, 80), 100)
+          setTimeout(() => doZoomToFit(), 100)
         }
       }
 
@@ -446,6 +473,7 @@ export default function GraphExplorer({ providerId }: Props) {
     }
     setSearchQuery('')
     setSearchResults([])
+    setSearchDone(false)
   }, [graphData, providerId, hiddenTypes, navigateToNode])
 
   // Group neighbours by edge type for sidebar
@@ -507,7 +535,7 @@ export default function GraphExplorer({ providerId }: Props) {
           </button>
           <button
             className={styles.reloadBtn}
-            onClick={() => fgRef.current?.zoomToFit(400, 60)}
+            onClick={() => doZoomToFit()}
             title="Fit to screen"
           >
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -548,21 +576,42 @@ export default function GraphExplorer({ providerId }: Props) {
             </label>
           ))}
         </div>
-        {searchResults.length > 0 && (
+        {/* Search results dropdown */}
+        {(searching || searchResults.length > 0 || (searchDone && searchQuery.trim())) && (
           <div className={styles.searchResults}>
-            {searchResults.map((hit, i) => (
-              <button
-                key={i}
-                className={styles.searchResultItem}
-                onClick={() => navigateToSearchResult(hit)}
-              >
-                <span className={styles.searchResultDot} style={{ background: NODE_COLORS[hit.node_type] || '#6b7280' }} />
-                <div className={styles.searchResultInfo}>
-                  <span className={styles.searchResultText}>{hit.text.length > 60 ? hit.text.slice(0, 58) + '…' : hit.text}</span>
-                  <span className={styles.searchResultMeta}>{hit.node_type} · {(hit.score * 100).toFixed(0)}% match</span>
+            {searching ? (
+              <div className={styles.searchLoadingState}>
+                <span className={styles.searchSpinnerLarge} />
+                <span>Searching across graph nodes...</span>
+              </div>
+            ) : searchResults.length > 0 ? (
+              <>
+                <div className={styles.searchResultsHeader}>
+                  <span>{searchResults.length} result{searchResults.length !== 1 ? 's' : ''}</span>
+                  <button
+                    className={styles.searchResultsClear}
+                    onClick={() => { setSearchResults([]); setSearchQuery(''); setSearchDone(false) }}
+                  >Clear</button>
                 </div>
-              </button>
-            ))}
+                {searchResults.map((hit, i) => (
+                  <button
+                    key={i}
+                    className={styles.searchResultItem}
+                    onClick={() => navigateToSearchResult(hit)}
+                  >
+                    <span className={styles.searchResultDot} style={{ background: NODE_COLORS[hit.node_type] || '#6b7280' }} />
+                    <div className={styles.searchResultInfo}>
+                      <span className={styles.searchResultText}>{hit.text.length > 60 ? hit.text.slice(0, 58) + '…' : hit.text}</span>
+                      <span className={styles.searchResultMeta}>{hit.node_type} · {(hit.score * 100).toFixed(0)}% match</span>
+                    </div>
+                  </button>
+                ))}
+              </>
+            ) : searchDone ? (
+              <div className={styles.searchEmptyState}>
+                No matching nodes found for "{searchQuery}"
+              </div>
+            ) : null}
           </div>
         )}
       </div>
@@ -615,15 +664,19 @@ export default function GraphExplorer({ providerId }: Props) {
               linkWidth={(link: any) => link.highlighted ? 1.8 : 0.6}
               linkDirectionalArrowLength={(link: any) => link.highlighted ? 5 : 3}
               linkDirectionalArrowRelPos={0.85}
-              linkLabel={(link: any) => link.edgeType}
+              linkLabel={(link: any) => {
+                const conf = link.edgeConfidence != null ? ` (${Math.round(link.edgeConfidence * 100)}%)` : ''
+                const desc = link.edgeDescription ? `\n${link.edgeDescription}` : ''
+                return `${link.edgeType}${conf}${desc}`
+              }}
               linkLineDash={(link: any) => link.edgeType === 'RELATED_TO' ? [4, 2] : []}
               linkCurvature={0.12}
               onNodeClick={handleNodeClick}
               onBackgroundClick={handleBackgroundClick}
-              cooldownTicks={150}
-              d3AlphaDecay={0.02}
-              d3VelocityDecay={0.2}
-              d3AlphaMin={0.001}
+              onEngineStop={handleEngineStop}
+              cooldownTicks={200}
+              d3AlphaDecay={0.03}
+              d3VelocityDecay={0.3}
               enableZoomInteraction={true}
               enablePanInteraction={true}
             />
@@ -844,7 +897,15 @@ export default function GraphExplorer({ providerId }: Props) {
                                   n.neighbour_label
                                 )}
                               </span>
-                              <span className={styles.neighbourType}>{n.neighbour_label}</span>
+                              <span className={styles.neighbourType}>
+                                {n.neighbour_label}
+                                {(n as any).edge_confidence != null && (
+                                  <span className={styles.confidenceBadge}>{Math.round((n as any).edge_confidence * 100)}%</span>
+                                )}
+                              </span>
+                              {(n as any).edge_description && (
+                                <span className={styles.neighbourDesc}>{String((n as any).edge_description)}</span>
+                              )}
                             </div>
                             <span className={styles.neighbourArrow}>›</span>
                           </button>

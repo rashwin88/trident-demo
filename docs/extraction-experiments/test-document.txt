@@ -1,0 +1,49 @@
+Meridian Network Architecture — Technical Overview
+
+1. Overview
+
+Meridian is a distributed edge computing platform developed by Axiom Systems Inc., headquartered in Austin, Texas. The platform enables low-latency inference at the network edge by deploying containerized ML models across a mesh of Meridian Edge Nodes (MENs). The system was designed by Dr. Sarah Chen, VP of Engineering, and first deployed in Q3 2024 at three Tier-1 carrier sites operated by Verizon and AT&T.
+
+2. Core Components
+
+The Meridian Control Plane (MCP) orchestrates all edge deployments from a centralized Kubernetes cluster running on AWS EKS in us-east-1. MCP communicates with each MEN via a bidirectional gRPC channel secured with mTLS certificates issued by Axiom's internal PKI (Vault-based). The MCP exposes a REST API (OpenAPI 3.1) for external integrations, authenticated via OAuth 2.0 with JWT bearer tokens.
+
+Each Meridian Edge Node consists of:
+- An NVIDIA Jetson Orin NX module (8GB variant) running JetPack 6.0
+- A custom FPGA co-processor (Xilinx Kria K26) for packet-level feature extraction
+- 256GB NVMe storage for local model caching and telemetry buffering
+- A 10GbE uplink to the carrier's aggregation switch
+
+The Meridian Model Registry (MMR) stores versioned ONNX and TensorRT models. Models are tagged with a Deployment Specification that includes target hardware profile, minimum throughput (tokens/sec), and maximum P99 latency. The MMR is backed by Amazon S3 with DynamoDB for metadata.
+
+3. Data Pipeline
+
+Raw network telemetry flows from carrier routers (Cisco NCS 5500, Juniper MX304) via streaming telemetry (gNMI) into the Meridian Ingestion Gateway (MIG). The MIG normalizes heterogeneous telemetry schemas into a unified Meridian Telemetry Format (MTF), a Protocol Buffers schema with 47 field definitions covering interface counters, BGP state, MPLS label tables, and segment routing SIDs.
+
+The normalized data is published to Apache Kafka (3-broker cluster, replication factor 2) on topic `meridian.telemetry.normalized`. Two consumer groups process this stream:
+- The Real-Time Inference Pipeline (RTIP) reads from Kafka, batches 100ms windows, and dispatches to the nearest MEN for anomaly detection using the AnomalyNet v3.2 model.
+- The Historical Analytics Pipeline (HAP) writes to Apache Iceberg tables on S3, partitioned by carrier_id and hour, for batch analysis by the data science team using Spark 3.5.
+
+4. Anomaly Detection
+
+AnomalyNet v3.2 is a temporal convolutional network (TCN) with 8 dilated causal convolution layers, trained on 18 months of labeled network fault data from Verizon's northeast region. The model accepts a 60-second sliding window of 12 telemetry features and outputs a fault probability score (0-1) plus a 4-class fault type classification (link_flap, congestion, route_leak, hardware_fault).
+
+When AnomalyNet detects a fault probability > 0.85, the MEN publishes an alert to `meridian.alerts.critical` Kafka topic. The Meridian Incident Correlator (MIC), built on Apache Flink, groups related alerts within a 30-second tumbling window and creates a Consolidated Incident Record (CIR). CIRs are forwarded to ServiceNow via the ITSM Integration Bridge and to the NOC dashboard via WebSocket.
+
+5. Security Architecture
+
+All inter-component communication uses mTLS with certificates rotated every 72 hours by HashiCorp Vault. The platform implements a zero-trust architecture: every API call carries a SPIFFE identity (spiffe://axiom.io/meridian/{component}/{instance-id}). Network policies are enforced by Cilium eBPF on the control plane cluster and by iptables rules on the edge nodes.
+
+Data at rest is encrypted with AES-256-GCM, keys managed by AWS KMS with automatic rotation. Telemetry data is classified as "Internal — Carrier Confidential" under Axiom's data governance policy (DGP-2024-03) and retained for 13 months per contractual SLA with carriers.
+
+Dr. James Liu, CISO at Axiom Systems, oversees the security architecture. The platform underwent SOC 2 Type II audit by Deloitte in January 2025, with zero critical findings.
+
+6. Operational Procedures
+
+When a MEN becomes unresponsive, the NOC follows the Edge Node Recovery Procedure (ENRP):
+Step 1: Verify connectivity via ICMP ping and SSH probe from the MCP
+Step 2: Check the MEN's last heartbeat timestamp in the MCP dashboard (must be < 5 minutes old)
+Step 3: If heartbeat is stale, attempt remote restart via IPMI/BMC interface
+Step 4: If remote restart fails, dispatch a field technician with a replacement Jetson Orin module
+Step 5: Once restored, verify model deployment by running the edge health check suite (meridian-cli health --full)
+Step 6: Mark the incident as resolved in ServiceNow and update the MEN's status in MCP to "active"

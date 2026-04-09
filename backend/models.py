@@ -1,3 +1,19 @@
+"""
+Pydantic data models — the shared vocabulary for the entire system.
+
+Every data structure that crosses a module boundary is defined here.
+Models are grouped by lifecycle stage:
+
+    Enums               — DocumentType, PipelineStage, ProviderStatus
+    Context Provider    — ContextProvider (the top-level knowledge base entity)
+    Ingestion           — IngestRequest, ParseResult, KnowledgeChunk, PipelineEvent
+    Extraction          — entities, concepts, relationships, propositions, procedures
+    Store               — KnowledgeStoreEntry, ProceduralStoreEntry (Milvus row shapes)
+    Query               — QueryRequest, QueryResponse, ReasoningSubgraph
+
+Consumed by every module in the backend.
+"""
+
 from datetime import UTC, datetime
 from enum import Enum
 from uuid import uuid4
@@ -11,22 +27,24 @@ from pydantic import BaseModel, Field
 
 
 class DocumentType(str, Enum):
+    """Supported document types for ingestion. Determines parsing strategy."""
     PDF = "pdf"
     TEXT = "text"
     CSV = "csv"
-    SOP = "sop"
-    DDL = "ddl"
-    WEB = "web"
+    SOP = "sop"    # Standard Operating Procedure — no chunking, full-text procedure extraction
+    DDL = "ddl"    # SQL DDL — table semantics extraction + standard chunking
+    WEB = "web"    # URL-based — fetched via HTTP, parsed as HTML by Docling
 
 
 class PipelineStage(str, Enum):
-    PARSE = "parse"
-    CHUNK = "chunk"
-    EXTRACT = "extract"
-    RESOLVE = "resolve"
-    STORE = "store"
-    DONE = "done"
-    ERROR = "error"
+    """Stages of the ingestion pipeline, emitted as SSE events to the UI."""
+    PARSE = "parse"      # Docling converts raw file to structured text
+    CHUNK = "chunk"      # HybridChunker splits text (or SOP bypass)
+    EXTRACT = "extract"  # Unified LLM extraction (1 call per chunk)
+    RESOLVE = "resolve"  # Semantic deduplication via GN index
+    STORE = "store"      # Write to Neo4j + Milvus (KS, PS, GN)
+    DONE = "done"        # Pipeline completed successfully
+    ERROR = "error"      # Fatal error — pipeline aborted
 
 
 class ProviderStatus(str, Enum):
@@ -111,12 +129,14 @@ class ExtractedConcept(BaseModel):
 
 class ExtractedRelationship(BaseModel):
     """A directed edge between two extracted entities, constrained to the
-    20-type edge vocabulary defined in the spec."""
+    edge vocabulary defined in graph_constants.py.  Carries a free-text
+    description for context and a confidence score from the LLM."""
 
     source_label: str  # must match an extracted entity label
     edge_type: str  # from EDGE_VOCABULARY
     target_label: str  # must match an extracted entity label
-    confidence: float = 1.0
+    description: str = ""  # brief context, e.g. "acquired in 2017"
+    confidence: float = 1.0  # 1.0=explicit, 0.7-0.9=implied, <0.7=inferred
 
 
 class ExtractedProposition(BaseModel):
@@ -131,17 +151,21 @@ class ExtractedProposition(BaseModel):
 
 
 class ProcedureStep(BaseModel):
+    """A single step in a Standard Operating Procedure. Steps form a DAG
+    in Neo4j via PRECEDES edges based on the prerequisites list."""
     step_number: int
     description: str
-    prerequisites: list[int] = []
-    responsible: str | None = None
+    prerequisites: list[int] = []   # step_numbers that must complete first
+    responsible: str | None = None  # team or role responsible for this step
 
 
 class ExtractedProcedure(BaseModel):
+    """A full SOP extracted from document text. Stored as a DAG in Neo4j:
+    Procedure -[HAS_STEP]-> Step -[PRECEDES]-> Step -[REFERENCES]-> Entity."""
     name: str
-    intent: str  # one-line summary — used as embedding input
+    intent: str  # one-line summary — used as embedding input for PS and GN
     steps: list[ProcedureStep]
-    source_chunk: str
+    source_chunk: str  # chunk_id of the source text
 
 
 class ColumnSemantic(BaseModel):
@@ -169,23 +193,27 @@ class ExtractionResult(BaseModel):
 
 
 class KnowledgeStoreEntry(BaseModel):
+    """A row in the Milvus Knowledge Store (ks_{provider_id} collection).
+    One entry per document chunk, with its embedding for ANN search."""
     chunk_id: str
     provider_id: str
     source_file: str
     doc_type: str
     text: str
-    embedding: list[float]  # dim=768
+    embedding: list[float]  # dimension matches EMBEDDING_DIM setting
     char_start: int
     char_end: int
 
 
 class ProceduralStoreEntry(BaseModel):
+    """A row in the Milvus Procedural Store (ps_{provider_id} collection).
+    One entry per SOP, embedded by intent for procedure retrieval."""
     procedure_id: str = Field(default_factory=lambda: str(uuid4()))
     provider_id: str
     name: str
     intent: str
     steps_json: str  # JSON-serialised list[ProcedureStep]
-    embedding: list[float]  # embed(intent), dim=768
+    embedding: list[float]  # embed(intent), dimension matches EMBEDDING_DIM
 
 
 # ── Query Models ──────────────────────────────────────
@@ -209,6 +237,8 @@ class GraphEdge(BaseModel):
     source: str  # node_id
     target: str  # node_id
     edge_type: str
+    description: str = ""
+    confidence: float | None = None
 
 
 class ReasoningSubgraph(BaseModel):

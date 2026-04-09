@@ -1,10 +1,37 @@
+"""LLM provider factory -- returns a configured DSPy language model.
+
+Abstracts away the differences between OpenAI, Azure OpenAI, Anthropic, and
+Ollama backends behind a single get_lm() call.  The active provider is
+selected via config.settings.LLM_PROVIDER.
+
+Consumed by:
+    - main.py lifespan hook (calls dspy.configure(lm=get_lm()) at startup)
+    - Any module that uses DSPy signatures (indirectly, via the global config)
+
+Key design choices:
+    - Ollama is accessed through the OpenAI-compatible /v1 endpoint so that
+      DSPy's openai adapter can be reused without a custom integration.
+    - Azure requires explicit api_base and api_version, which are separate
+      settings from the standard OpenAI key.
+"""
+
 import dspy
 
 from config import settings
 
 
 def get_lm() -> dspy.LM:
-    """Return a DSPy LM instance for the configured provider."""
+    """Return a DSPy LM instance for the configured provider.
+
+    Reads LLM_PROVIDER from settings and constructs the appropriate DSPy LM
+    with provider-specific credentials and endpoints.
+
+    Returns:
+        dspy.LM: A ready-to-use language model instance.
+
+    Raises:
+        ValueError: If LLM_PROVIDER is not one of the supported backends.
+    """
     match settings.LLM_PROVIDER:
         case "openai":
             return dspy.LM(

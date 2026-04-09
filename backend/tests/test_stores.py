@@ -9,8 +9,8 @@ from stores.procedural import ProceduralStore
 
 
 class TestEdgeVocabulary:
-    def test_has_20_types(self):
-        assert len(EDGE_VOCABULARY) == 20
+    def test_has_29_types(self):
+        assert len(EDGE_VOCABULARY) == 29
 
     def test_sorted_list_matches_set(self):
         assert set(EDGE_VOCABULARY_LIST) == EDGE_VOCABULARY

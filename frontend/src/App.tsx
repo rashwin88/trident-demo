@@ -11,7 +11,7 @@ import DocsPanel from './components/docs/DocsPanel'
 import ToastContainer from './components/ToastContainer'
 import styles from './App.module.css'
 
-type Tab = 'providers' | 'ingest' | 'graph' | 'agent' | 'docs' | 'status'
+type Tab = 'providers' | 'ingest' | 'graph' | 'query-agent' | 'task-agent' | 'docs' | 'status'
 
 const NAV_ITEMS: { id: Tab; label: string; icon: JSX.Element }[] = [
   {
@@ -43,12 +43,21 @@ const NAV_ITEMS: { id: Tab; label: string; icon: JSX.Element }[] = [
     ),
   },
   {
-    id: 'agent',
-    label: 'Agent',
+    id: 'query-agent',
+    label: 'Query Agent',
     icon: (
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
         <path d="M12 2a4 4 0 0 1 4 4v2a4 4 0 0 1-8 0V6a4 4 0 0 1 4-4z" />
         <path d="M16 14H8a4 4 0 0 0-4 4v2h16v-2a4 4 0 0 0-4-4z" />
+      </svg>
+    ),
+  },
+  {
+    id: 'task-agent',
+    label: 'Task Agent',
+    icon: (
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M9 11l3 3L22 4" /><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" />
       </svg>
     ),
   },
@@ -160,18 +169,40 @@ function AppInner() {
           </div>
         </div>
 
-        <div className={styles.tabContent} style={{ display: tab === 'graph' ? 'flex' : 'none' }}>
+        {tab === 'graph' && (
+          <div className={styles.tabContent} style={{ display: 'flex' }}>
+            <div className={styles.fullLayout}>
+              <div className={styles.card}>
+                <GraphExplorer providerId={providerId} />
+              </div>
+            </div>
+          </div>
+        )}
+
+        <div className={styles.tabContent} style={{ display: tab === 'query-agent' ? 'flex' : 'none' }}>
           <div className={styles.fullLayout}>
             <div className={styles.card}>
-              <GraphExplorer providerId={providerId} />
+              <AgentPanel
+                providerId={providerId}
+                title="Query Agent"
+                chatEndpoint="/agent/chat"
+                deleteEndpoint="/agent"
+                emptyText="Ask a question about the knowledge graph"
+              />
             </div>
           </div>
         </div>
 
-        <div className={styles.tabContent} style={{ display: tab === 'agent' ? 'flex' : 'none' }}>
+        <div className={styles.tabContent} style={{ display: tab === 'task-agent' ? 'flex' : 'none' }}>
           <div className={styles.fullLayout}>
             <div className={styles.card}>
-              <AgentPanel providerId={providerId} />
+              <AgentPanel
+                providerId={providerId}
+                title="Task Agent"
+                chatEndpoint="/task-agent/chat"
+                deleteEndpoint="/task-agent"
+                emptyText="Ask the task agent to execute an SOP from the knowledge graph"
+              />
             </div>
           </div>
         </div>

@@ -228,10 +228,11 @@ export function agentChat(
   onStep: (step: AgentStep) => void,
   onError: (error: string) => void,
   onDone: () => void,
+  endpoint: string = '/agent/chat',
 ): () => void {
   const controller = new AbortController()
 
-  fetch(`${BASE}/agent/chat`, {
+  fetch(`${BASE}${endpoint}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -284,6 +285,6 @@ export function agentChat(
   return () => controller.abort()
 }
 
-export function deleteConversation(conversationId: string): Promise<{ deleted: boolean }> {
-  return fetchJSON(`/agent/conversations/${conversationId}`, { method: 'DELETE' })
+export function deleteConversation(conversationId: string, prefix: string = '/agent'): Promise<{ deleted: boolean }> {
+  return fetchJSON(`${prefix}/conversations/${conversationId}`, { method: 'DELETE' })
 }

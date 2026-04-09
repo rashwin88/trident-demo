@@ -164,9 +164,21 @@ async def run_pipeline(
     all_table_semantics = []
     extract_warnings = 0
 
+    # Per-chunk tracking: maps chunk_id → entity labels / concept names
+    # extracted from that chunk.  Used in Stage 5d/5e to create scoped
+    # MENTIONS/DEFINES edges instead of a Cartesian product (R1 bug fix).
+    chunk_entity_labels: dict[str, list[str]] = {}
+    chunk_concept_names: dict[str, list[str]] = {}
+
+    loop = asyncio.get_event_loop()
+    _executor = ThreadPoolExecutor(max_workers=settings.EXTRACTION_CONCURRENCY)
+
     if doc_type == DocumentType.SOP:
+        # 3a. Procedure structure extraction (steps, prerequisites)
         try:
-            proc_data = extraction_pipeline.extract_procedure(parse_result.text)
+            proc_data = await loop.run_in_executor(
+                _executor, extraction_pipeline.extract_procedure, parse_result.text
+            )
             if proc_data:
                 from ingestion.extractor import _build_procedure
                 procedure = _build_procedure(proc_data, chunks[0].chunk_id)
@@ -190,12 +202,42 @@ async def run_pipeline(
                 {"warning": True},
             )
 
+        # 3b. Also run unified extraction on SOP text to capture
+        # entities, concepts, and relationships referenced in the procedure.
+        try:
+            result = await loop.run_in_executor(
+                _executor, extract_from_chunk, chunks[0], extraction_pipeline
+            )
+            all_entities.extend(result.entities)
+            all_concepts.extend(result.concepts)
+            all_relations.extend(result.relations)
+            all_propositions.extend(result.propositions)
+            chunk_entity_labels[chunks[0].chunk_id] = [e.label for e in result.entities]
+            chunk_concept_names[chunks[0].chunk_id] = [c.name for c in result.concepts]
+            yield _event(
+                PipelineStage.EXTRACT,
+                f"SOP entity extraction: {len(result.entities)} entities, {len(result.concepts)} concepts, {len(result.relations)} relationships",
+                {
+                    "chunk_result": True,
+                    "new_entities": [{"label": e.label, "type": e.entity_type, "description": e.description or ""} for e in result.entities],
+                    "new_concepts": [{"name": c.name, "definition": c.definition[:120] if c.definition else ""} for c in result.concepts],
+                    "new_relations": [{"src": r.source_label, "edge": r.edge_type, "tgt": r.target_label, "description": r.description, "confidence": r.confidence} for r in result.relations],
+                    "running_totals": {"entities": len(all_entities), "concepts": len(all_concepts), "relationships": len(all_relations), "propositions": len(all_propositions)},
+                },
+            )
+        except Exception as e:
+            extract_warnings += 1
+            logger.warning(f"SOP entity extraction failed: {e}")
+
         stage_times["extract"] = round(time.time() - stage_start, 2)
         yield _event(
             PipelineStage.EXTRACT,
-            f"SOP extraction complete — {len(all_procedures)} procedure(s)",
+            f"SOP extraction complete — {len(all_procedures)} procedure(s), {len(all_entities)} entities, {len(all_concepts)} concepts",
             {
                 "procedures": len(all_procedures),
+                "entities": len(all_entities),
+                "concepts": len(all_concepts),
+                "relationships": len(all_relations),
                 "warnings": extract_warnings,
                 "duration_s": stage_times["extract"],
                 "summary": True,
@@ -204,7 +246,9 @@ async def run_pipeline(
 
     elif doc_type == DocumentType.DDL:
         try:
-            sem_data = extraction_pipeline.extract_db_semantics(parse_result.text)
+            sem_data = await loop.run_in_executor(
+                _executor, extraction_pipeline.extract_db_semantics, parse_result.text
+            )
             if sem_data:
                 from ingestion.extractor import _build_table_semantic
                 table_sem = _build_table_semantic(sem_data)
@@ -224,39 +268,39 @@ async def run_pipeline(
 
         # Parallel per-chunk extraction for DDL entities/concepts
         total_chunks = len(chunks)
-        concurrency = settings.EXTRACTION_CONCURRENCY
         completed = 0
 
-        with ThreadPoolExecutor(max_workers=concurrency) as executor:
-            futures = {
-                executor.submit(extract_from_chunk, chunk, extraction_pipeline): i
-                for i, chunk in enumerate(chunks)
-            }
-            from concurrent.futures import as_completed
-            for future in as_completed(futures):
-                i = futures[future]
-                completed += 1
-                try:
-                    result = future.result()
-                    all_entities.extend(result.entities)
-                    all_concepts.extend(result.concepts)
-                    all_relations.extend(result.relations)
-                    all_propositions.extend(result.propositions)
-                    yield _event(
-                        PipelineStage.EXTRACT,
-                        f"Chunk {completed}/{total_chunks}: {len(result.entities)} entities, {len(result.concepts)} concepts",
-                        {
-                            "chunk_index": i, "chunk_result": True,
-                            "new_entities": [{"label": e.label, "type": e.entity_type} for e in result.entities],
-                            "new_concepts": [{"name": c.name} for c in result.concepts],
-                            "new_relations": [{"src": r.source_label, "edge": r.edge_type, "tgt": r.target_label} for r in result.relations],
-                            "running_totals": {"entities": len(all_entities), "concepts": len(all_concepts), "relationships": len(all_relations), "propositions": len(all_propositions)},
-                        },
-                    )
-                except Exception as e:
-                    extract_warnings += 1
-                    logger.warning(f"Extraction failed for chunk {i}: {e}")
-                    yield _event(PipelineStage.EXTRACT, f"Warning: extraction failed for chunk {completed}: {e}", {"chunk_index": i, "warning": True})
+        # Submit all to executor (runs in parallel), then await each
+        pending = [
+            (i, asyncio.wrap_future(_executor.submit(extract_from_chunk, chunk, extraction_pipeline)))
+            for i, chunk in enumerate(chunks)
+        ]
+        for i, fut in pending:
+            chunk_id = chunks[i].chunk_id
+            completed += 1
+            try:
+                result = await fut
+                all_entities.extend(result.entities)
+                all_concepts.extend(result.concepts)
+                all_relations.extend(result.relations)
+                all_propositions.extend(result.propositions)
+                chunk_entity_labels[chunk_id] = [e.label for e in result.entities]
+                chunk_concept_names[chunk_id] = [c.name for c in result.concepts]
+                yield _event(
+                    PipelineStage.EXTRACT,
+                    f"Chunk {completed}/{total_chunks}: {len(result.entities)} entities, {len(result.concepts)} concepts",
+                    {
+                        "chunk_index": i, "chunk_result": True,
+                        "new_entities": [{"label": e.label, "type": e.entity_type, "description": e.description or ""} for e in result.entities],
+                        "new_concepts": [{"name": c.name, "definition": c.definition[:120] if c.definition else ""} for c in result.concepts],
+                        "new_relations": [{"src": r.source_label, "edge": r.edge_type, "tgt": r.target_label, "description": r.description, "confidence": r.confidence} for r in result.relations],
+                        "running_totals": {"entities": len(all_entities), "concepts": len(all_concepts), "relationships": len(all_relations), "propositions": len(all_propositions)},
+                    },
+                )
+            except Exception as e:
+                extract_warnings += 1
+                logger.warning(f"Extraction failed for chunk {i}: {e}")
+                yield _event(PipelineStage.EXTRACT, f"Warning: extraction failed for chunk {completed}: {e}", {"chunk_index": i, "warning": True})
 
         stage_times["extract"] = round(time.time() - stage_start, 2)
         yield _event(
@@ -286,53 +330,49 @@ async def run_pipeline(
             {"total": total_chunks, "concurrency": concurrency, "progress": True},
         )
 
-        # Run extractions in parallel using a thread pool (DSPy calls are synchronous)
-        loop = asyncio.get_event_loop()
+        # Submit all chunks to the shared executor — they run in parallel.
+        # Using asyncio.wrap_future so we await without blocking the event loop.
         completed = 0
-
-        with ThreadPoolExecutor(max_workers=concurrency) as executor:
-            # Submit all chunks
-            futures = {
-                executor.submit(extract_from_chunk, chunk, extraction_pipeline): i
-                for i, chunk in enumerate(chunks)
-            }
-
-            # Collect results as they complete
-            from concurrent.futures import as_completed
-            for future in as_completed(futures):
-                i = futures[future]
-                completed += 1
-                try:
-                    result = future.result()
-                    all_entities.extend(result.entities)
-                    all_concepts.extend(result.concepts)
-                    all_relations.extend(result.relations)
-                    all_propositions.extend(result.propositions)
-                    yield _event(
-                        PipelineStage.EXTRACT,
-                        f"Chunk {completed}/{total_chunks}: {len(result.entities)} entities, {len(result.concepts)} concepts",
-                        {
-                            "chunk_index": i,
-                            "chunk_result": True,
-                            "new_entities": [{"label": e.label, "type": e.entity_type} for e in result.entities],
-                            "new_concepts": [{"name": c.name} for c in result.concepts],
-                            "new_relations": [{"src": r.source_label, "edge": r.edge_type, "tgt": r.target_label} for r in result.relations],
-                            "running_totals": {
-                                "entities": len(all_entities),
-                                "concepts": len(all_concepts),
-                                "relationships": len(all_relations),
-                                "propositions": len(all_propositions),
-                            },
+        pending = [
+            (i, asyncio.wrap_future(_executor.submit(extract_from_chunk, chunk, extraction_pipeline)))
+            for i, chunk in enumerate(chunks)
+        ]
+        for i, fut in pending:
+            chunk_id = chunks[i].chunk_id
+            completed += 1
+            try:
+                result = await fut
+                all_entities.extend(result.entities)
+                all_concepts.extend(result.concepts)
+                all_relations.extend(result.relations)
+                all_propositions.extend(result.propositions)
+                chunk_entity_labels[chunk_id] = [e.label for e in result.entities]
+                chunk_concept_names[chunk_id] = [c.name for c in result.concepts]
+                yield _event(
+                    PipelineStage.EXTRACT,
+                    f"Chunk {completed}/{total_chunks}: {len(result.entities)} entities, {len(result.concepts)} concepts",
+                    {
+                        "chunk_index": i,
+                        "chunk_result": True,
+                        "new_entities": [{"label": e.label, "type": e.entity_type, "description": e.description or ""} for e in result.entities],
+                        "new_concepts": [{"name": c.name, "definition": c.definition[:120] if c.definition else ""} for c in result.concepts],
+                        "new_relations": [{"src": r.source_label, "edge": r.edge_type, "tgt": r.target_label, "description": r.description, "confidence": r.confidence} for r in result.relations],
+                        "running_totals": {
+                            "entities": len(all_entities),
+                            "concepts": len(all_concepts),
+                            "relationships": len(all_relations),
+                            "propositions": len(all_propositions),
                         },
-                    )
-                except Exception as e:
-                    extract_warnings += 1
-                    logger.warning(f"Extraction failed for chunk {i}: {e}")
-                    yield _event(
-                        PipelineStage.EXTRACT,
-                        f"Warning: extraction failed for chunk {completed}: {e}",
-                        {"chunk_index": i, "warning": True},
-                    )
+                    },
+                )
+            except Exception as e:
+                extract_warnings += 1
+                logger.warning(f"Extraction failed for chunk {i}: {e}")
+                yield _event(
+                    PipelineStage.EXTRACT,
+                    f"Warning: extraction failed for chunk {completed}: {e}",
+                    {"chunk_index": i, "warning": True},
+                )
 
         stage_times["extract"] = round(time.time() - stage_start, 2)
         yield _event(
@@ -412,19 +452,19 @@ async def run_pipeline(
         # 5c. Concepts — already created in Neo4j by SemanticResolver
         node_count += con_new
 
-        # 5d. Chunk → Entity edges (MENTIONS)
+        # 5d. Chunk → Entity edges (MENTIONS) — scoped to entities from that chunk
         for chunk in chunks:
-            for entity in all_entities:
+            for entity_label in chunk_entity_labels.get(chunk.chunk_id, []):
                 await graph.create_chunk_entity_edge(
-                    chunk.chunk_id, entity.label, provider_id
+                    chunk.chunk_id, entity_label, provider_id
                 )
                 edge_count += 1
 
-        # 5e. Chunk → Concept edges (DEFINES)
+        # 5e. Chunk → Concept edges (DEFINES) — scoped to concepts from that chunk
         for chunk in chunks:
-            for concept in all_concepts:
+            for concept_name in chunk_concept_names.get(chunk.chunk_id, []):
                 await graph.create_chunk_concept_edge(
-                    chunk.chunk_id, concept.name, provider_id
+                    chunk.chunk_id, concept_name, provider_id
                 )
                 edge_count += 1
 
@@ -446,7 +486,8 @@ async def run_pipeline(
         # 5g. Relationships → graph edges
         for rel in all_relations:
             await graph.create_edge(
-                rel.source_label, rel.edge_type, rel.target_label, provider_id
+                rel.source_label, rel.edge_type, rel.target_label, provider_id,
+                description=rel.description, confidence=rel.confidence,
             )
             edge_count += 1
 
@@ -457,26 +498,18 @@ async def run_pipeline(
             edge_count += len(step_ids)
             edge_count += max(0, len(step_ids) - 1)
 
+            # Link steps to entities already extracted in Stage 3b by checking
+            # if the entity label appears in the step description.  This replaces
+            # the old per-step LLM extraction (11 calls → 0 calls).
             for step in proc.steps:
                 if step.step_number in step_ids:
-                    try:
-                        step_entities = extraction_pipeline.extract_entities(step.description)
-                        for ent_data in step_entities:
-                            ent_label = ent_data.get("label", "")
-                            if ent_label:
-                                from models import ExtractedNamedEntity
-                                ent = ExtractedNamedEntity(
-                                    label=ent_label,
-                                    entity_type=ent_data.get("entity_type", "Unknown"),
-                                    description=ent_data.get("description"),
-                                )
-                                await graph.merge_entity(ent, provider_id)
-                                await graph.link_step_to_entity(
-                                    step_ids[step.step_number], ent_label, provider_id
-                                )
-                                edge_count += 1
-                    except Exception as e:
-                        logger.warning(f"Step entity extraction failed for step {step.step_number}: {e}")
+                    desc_lower = step.description.lower()
+                    for entity in all_entities:
+                        if entity.label.lower() in desc_lower:
+                            await graph.link_step_to_entity(
+                                step_ids[step.step_number], entity.label, provider_id
+                            )
+                            edge_count += 1
 
             intent_embedding = embedder.embed(proc.intent)
             ps_entry = ProceduralStoreEntry(

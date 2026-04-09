@@ -224,6 +224,52 @@
   font-family: 'SF Mono', 'Fira Code', monospace;
 }
 
+/* ── Chunk extraction progress bar ───────────── */
+
+.chunkProgress {
+  padding: 0.55rem 1rem;
+  border-bottom: 1px solid var(--border-light);
+  flex-shrink: 0;
+}
+
+.chunkProgressHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.35rem;
+}
+
+.chunkProgressLabel {
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: var(--text-tertiary);
+}
+
+.chunkProgressCount {
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--warning);
+  font-family: 'SF Mono', 'Fira Code', monospace;
+}
+
+.chunkBar {
+  height: 6px;
+  background: var(--bg-surface);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.chunkBarFill {
+  height: 100%;
+  background: var(--warning);
+  border-radius: 3px;
+  transition: width 0.4s ease;
+}
+
+.chunkBarDone {
+  background: var(--success);
+}
+
 /* ── Timeline bar ────────────────────────────── */
 
 .timeline {
@@ -265,14 +311,15 @@
 .stageDetail {
   border-bottom: 1px solid var(--border-light);
   flex-shrink: 0;
-  max-height: 320px;
-  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  max-height: 380px;
   animation: detailIn 0.2s ease;
 }
 
 @keyframes detailIn {
-  from { opacity: 0; max-height: 0; }
-  to { opacity: 1; max-height: 320px; }
+  from { opacity: 0; }
+  to { opacity: 1; }
 }
 
 .stageDetailHeader {
@@ -282,6 +329,7 @@
   padding: 0.6rem 1rem;
   border-bottom: 1px solid var(--border-light);
   background: var(--bg-surface);
+  flex-shrink: 0;
 }
 
 .stageDetailIcon { font-size: 1rem; }
@@ -295,6 +343,9 @@
 
 .stageDetailBody {
   padding: 0.75rem 1rem;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
 }
 
 /* ── Detail cards grid ───────────────────────── */
@@ -361,6 +412,7 @@
   padding: 0.6rem;
   max-height: 120px;
   overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
   white-space: pre-wrap;
   word-break: break-word;
   font-family: 'SF Mono', 'Fira Code', monospace;
@@ -375,6 +427,7 @@
   gap: 0.3rem;
   max-height: 180px;
   overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
 }
 
 .chunkItem {
@@ -409,92 +462,252 @@
   flex: 1;
 }
 
-/* ── Entity/Concept ticker ───────────────────── */
+/* ── Extract detail ─────────────────────────── */
 
-.tickerSection {
-  margin-bottom: 0.75rem;
+.extractDetail {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
 }
 
-.tickerLabel {
-  display: block;
-  font-size: 0.65rem;
+/* ── Three-column card stacks ────────────────── */
+
+.columnsRow {
+  display: flex;
+  gap: 0.75rem;
+  min-height: 0;
+}
+
+.cardColumn {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius);
+  background: var(--bg-surface);
+  overflow: hidden;
+}
+
+.columnHeader {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.45rem 0.65rem;
+  border-bottom: 1px solid var(--border-light);
+  background: var(--bg-primary);
+  flex-shrink: 0;
+}
+
+.columnDot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.columnTitle {
+  font-size: 0.68rem;
   font-weight: 600;
-  color: var(--text-muted);
+  color: var(--text-tertiary);
   text-transform: uppercase;
   letter-spacing: 0.04em;
-  margin-bottom: 0.35rem;
 }
 
-.tickerGrid {
+.columnCount {
+  margin-left: auto;
+  font-size: 0.6rem;
+  background: var(--bg-surface);
+  color: var(--text-muted);
+  padding: 0.05rem 0.4rem;
+  border-radius: 100px;
+  font-weight: 500;
+}
+
+.columnScroll {
+  flex: 1;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+  max-height: 200px;
+  padding: 0.35rem;
   display: flex;
-  flex-wrap: wrap;
-  gap: 0.3rem;
+  flex-direction: column;
+  gap: 0.25rem;
 }
 
-.tickerTag {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.25rem;
-  font-size: 0.72rem;
-  color: var(--text-secondary);
+/* ── Entity cards (expandable) ───────────────── */
+
+.entityCard {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  padding: 0;
   background: var(--bg-primary);
   border: 1px solid var(--border);
-  padding: 0.15rem 0.5rem;
-  border-radius: 100px;
-  animation: tagIn 0.3s ease;
+  border-radius: var(--radius-sm);
+  animation: cardIn 0.2s ease;
+  cursor: pointer;
+  text-align: left;
+  font-family: inherit;
+  width: 100%;
+  transition: border-color 0.15s;
 }
 
-@keyframes tagIn {
-  from { opacity: 0; transform: scale(0.8); }
-  to { opacity: 1; transform: scale(1); }
+.entityCard:hover { border-color: var(--accent); }
+
+.entityCardExpanded {
+  border-color: #4f46e5;
+  box-shadow: 0 0 0 2px rgba(79, 70, 229, 0.08);
 }
 
-.tickerDot {
+@keyframes cardIn {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.entityCardTop {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.35rem 0.5rem;
+}
+
+.entityDot {
   width: 6px;
   height: 6px;
   border-radius: 50%;
   flex-shrink: 0;
 }
 
-.tickerConcept {
-  border-color: #7c3aed;
-  color: #7c3aed;
-  background: rgba(124, 58, 237, 0.06);
-}
-
-/* ── Relationships ───────────────────────────── */
-
-.relationList {
-  display: flex;
-  flex-direction: column;
-  gap: 0.25rem;
-  max-height: 140px;
-  overflow-y: auto;
-}
-
-.relationRow {
-  display: flex;
-  align-items: center;
-  gap: 0.35rem;
-  font-size: 0.72rem;
-  padding: 0.2rem 0;
-}
-
-.relationEntity {
+.entityLabel {
+  font-size: 0.75rem;
+  font-weight: 600;
   color: var(--text-primary);
-  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.relationEdge {
-  font-size: 0.6rem;
-  font-family: 'SF Mono', 'Fira Code', monospace;
+.entityType {
+  margin-left: auto;
+  font-size: 0.58rem;
   color: var(--text-muted);
   background: var(--bg-surface);
-  padding: 0.1rem 0.35rem;
+  padding: 0.08rem 0.35rem;
+  border-radius: 100px;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.entityDesc {
+  font-size: 0.72rem;
+  color: var(--text-tertiary);
+  line-height: 1.45;
+  padding: 0.25rem 0.5rem 0.4rem;
+  border-top: 1px solid var(--border-light);
+  background: var(--bg-surface);
+  border-radius: 0 0 var(--radius-sm) var(--radius-sm);
+}
+
+/* ── Concept cards (expandable) ──────────────── */
+
+.conceptCard {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  padding: 0.35rem 0.5rem;
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  border-left: 3px solid #7c3aed;
+  animation: cardIn 0.2s ease;
+  cursor: pointer;
+  text-align: left;
+  font-family: inherit;
+  width: 100%;
+  transition: border-color 0.15s;
+}
+
+.conceptCard:hover { border-color: #7c3aed; }
+
+.conceptCardExpanded {
+  border-color: #7c3aed;
+  box-shadow: 0 0 0 2px rgba(124, 58, 237, 0.08);
+}
+
+.conceptName {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.conceptDef {
+  font-size: 0.72rem;
+  color: var(--text-tertiary);
+  line-height: 1.45;
+  margin-top: 0.3rem;
+  padding-top: 0.25rem;
+  border-top: 1px solid var(--border-light);
+}
+
+/* ── Relationship rows (pill → edge → pill) ──── */
+
+.relRow {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.3rem 0;
+  animation: cardIn 0.2s ease;
+}
+
+.relNode {
+  font-size: 0.62rem;
+  font-weight: 600;
+  color: #fff;
+  padding: 0.2rem 0.5rem;
+  border-radius: 100px;
+  max-width: 130px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.relArrow {
+  display: flex;
+  align-items: center;
+  gap: 0.2rem;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.relEdgeLabel {
+  font-size: 0.55rem;
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-weight: 600;
+  color: var(--success);
+  background: rgba(5, 150, 105, 0.08);
+  padding: 0.08rem 0.3rem;
   border-radius: 3px;
+  white-space: nowrap;
+}
+
+.relConfidence {
+  font-size: 0.5rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  background: var(--bg-surface);
+  padding: 0.05rem 0.25rem;
+  border-radius: 100px;
 }
 
 /* ── Resolve view ────────────────────────────── */
+
+.resolveView {}
 
 .resolveNote {
   font-size: 0.8rem;
@@ -527,6 +740,8 @@
 .eventLogBody {
   flex: 1;
   overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
   padding: 0.25rem 0.5rem;
 }
 

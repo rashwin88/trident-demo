@@ -1,0 +1,52 @@
+Standard Operating Procedure: Database Failover and Recovery
+
+SOP ID: DBA-2024-007
+Effective Date: March 15, 2024
+Owner: Platform Engineering Team
+Approved By: Rajesh Krishnamurthy, VP of Infrastructure
+
+1. Purpose and Scope
+
+This procedure governs the failover and recovery of the Aurora PostgreSQL primary cluster (prod-aurora-pg-01) hosted in AWS Region us-east-1. It applies when the primary instance becomes unavailable due to hardware failure, AZ outage, or replication lag exceeding 30 seconds. The procedure must be executed by a certified DBA (Level 3 or above) from the Database Reliability Engineering (DRE) team, with the on-call SRE providing coordination via the #incident-response Slack channel.
+
+2. Prerequisites
+
+- Access to the AWS Console and CLI with IAM role dba-failover-prod
+- VPN connection to the production network (Tailscale mesh, subnet 10.200.0.0/16)
+- PagerDuty incident open with Severity 1 classification
+- Read access to the Grafana dashboard at grafana.internal/d/aurora-health
+- SSH access to the bastion host (bastion-east-1.internal, port 22)
+- pgAdmin 4 or psql client configured with the prod connection profile
+
+3. Procedure Steps
+
+Step 1: Confirm the outage by checking the Aurora cluster health in the AWS RDS Console. Verify that the primary instance (prod-aurora-pg-01-writer) shows status "unavailable" or "failing-over". Cross-reference with CloudWatch alarm AuroraWriterDown which triggers at 3 consecutive health check failures (interval: 10 seconds).
+
+Step 2: Notify stakeholders by posting in #incident-response Slack channel with the incident template. Tag @dre-oncall, @sre-oncall, and @engineering-leads. Update the PagerDuty incident with initial assessment. Estimated time to recovery: 5-15 minutes for automated failover, 30-60 minutes for manual.
+
+Step 3: Check if Aurora's automated failover has initiated. In the RDS Console, navigate to Events and look for "Failover started" event. If automated failover is in progress, skip to Step 6. If no failover event appears within 2 minutes, proceed to Step 4 for manual failover.
+
+Step 4: Initiate manual failover by running the AWS CLI command: `aws rds failover-db-cluster --db-cluster-identifier prod-aurora-pg-01 --target-db-instance-identifier prod-aurora-pg-01-reader-1`. This promotes the reader instance in us-east-1b to become the new writer. The command requires the dba-failover-prod IAM role. Expected completion: 30-120 seconds.
+
+Step 5: Monitor the failover progress in CloudWatch. Watch the following metrics: AuroraReplicaLag (should drop to 0), DatabaseConnections (should begin recovering), CPUUtilization on the new writer (expect a spike to 60-80%). If replication lag persists above 5 seconds after 3 minutes, escalate to AWS Support via the Enterprise Support channel (case severity: Critical, service: RDS).
+
+Step 6: Validate application connectivity. SSH into the bastion host and run the connection test script: `psql -h prod-aurora-pg-01.cluster-xyz.us-east-1.rds.amazonaws.com -U app_readonly -d production -c "SELECT 1"`. Verify that the application's connection pool (HikariCP, max pool size 50) has reconnected by checking the /actuator/health endpoint on each application instance (app-east-1a-01 through app-east-1a-04). All instances must report database status "UP".
+
+Step 7: Verify data integrity by running the checksums script: `/opt/dba-tools/verify-checksums.sh --cluster prod-aurora-pg-01 --tables critical`. This compares row counts and CRC32 checksums for the 12 critical tables (users, transactions, accounts, ledger, audit_log, sessions, api_keys, webhooks, notifications, rate_limits, feature_flags, tenant_config) between the new writer and the remaining reader replicas. All checksums must match.
+
+Step 8: Restore the former primary as a new reader replica. In the RDS Console, if the old writer instance is in "available" state, it should automatically rejoin as a reader. If it shows "incompatible-restore" or "storage-full", terminate the instance and create a new reader: `aws rds create-db-instance --db-instance-identifier prod-aurora-pg-01-reader-3 --db-cluster-identifier prod-aurora-pg-01 --db-instance-class db.r6g.2xlarge --engine aurora-postgresql`.
+
+Step 9: Update the DNS CNAME record for the write endpoint if the application uses a custom domain (db-write.prod.internal) instead of the Aurora cluster endpoint. Run: `aws route53 change-resource-record-sets` with the new writer's endpoint. TTL is 60 seconds; allow 2 minutes for full propagation. Verify with `dig db-write.prod.internal`.
+
+Step 10: Post-incident actions. Close the PagerDuty incident with resolution notes. Post a summary in #incident-response including: failover type (auto/manual), total downtime, data integrity check results, and any application errors observed. Schedule a post-mortem within 48 hours. Update the Aurora cluster's maintenance window if the failure was hardware-related. File an AWS Support case for root cause analysis if the failure was unexpected.
+
+4. Rollback
+
+If the promoted reader exhibits performance degradation (P99 latency > 500ms sustained for 5 minutes), initiate a second failover back to the original AZ by repeating Steps 4-9 targeting the next available reader. Contact Rajesh Krishnamurthy and the AWS Technical Account Manager (TAM) before executing a double failover.
+
+5. Related Documents
+
+- AWS Aurora Failover Documentation (docs.aws.amazon.com/AmazonRDS/latest/AuroraUserGuide/Concepts.AuroraHighAvailability.html)
+- DRE Runbook: Connection Pool Recovery (runbook.internal/dre/hikari-recovery)
+- Incident Response Playbook (playbook.internal/sev1-database)
+- Aurora Monitoring Dashboard (grafana.internal/d/aurora-health)

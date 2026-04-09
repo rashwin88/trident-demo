@@ -18,6 +18,14 @@ const TOOL_ICONS: Record<string, string> = {
   trident_create_entity: '➕',
   trident_create_concept: '➕',
   trident_create_relationship: '🔗',
+  // Task agent tools
+  aws_rds_status: '☁️',
+  aws_rds_failover: '🔄',
+  ssh_run_command: '💻',
+  run_health_check: '🩺',
+  slack_post_message: '💬',
+  pagerduty_update_incident: '🚨',
+  dns_update_record: '🌐',
 }
 
 const NODE_COLORS: Record<string, string> = {
@@ -38,16 +46,28 @@ interface Message {
 
 interface Props {
   providerId: string | null
+  title?: string
+  chatEndpoint?: string
+  deleteEndpoint?: string
+  defaultPrompt?: string
+  emptyText?: string
 }
 
-export default function AgentPanel({ providerId }: Props) {
+export default function AgentPanel({
+  providerId,
+  title = 'Agent',
+  chatEndpoint = '/agent/chat',
+  deleteEndpoint = '/agent',
+  defaultPrompt,
+  emptyText = 'Ask a question about the knowledge graph',
+}: Props) {
   const [messages, setMessages] = useState<Message[]>([])
   const [steps, setSteps] = useState<AgentStep[]>([])
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
   const [conversationId, setConversationId] = useState<string | null>(null)
   const [showSettings, setShowSettings] = useState(false)
-  const [systemPrompt, setSystemPrompt] = useState(DEFAULT_SYSTEM_PROMPT)
+  const [systemPrompt, setSystemPrompt] = useState(defaultPrompt || DEFAULT_SYSTEM_PROMPT)
   const [expandedSteps, setExpandedSteps] = useState<Set<number>>(new Set())
   const chatEndRef = useRef<HTMLDivElement>(null)
   const stepsEndRef = useRef<HTMLDivElement>(null)
@@ -110,12 +130,13 @@ export default function AgentPanel({ providerId }: Props) {
         setLoading(false)
       },
       () => setLoading(false),
+      chatEndpoint,
     )
-  }, [input, providerId, loading, conversationId, systemPrompt])
+  }, [input, providerId, loading, conversationId, systemPrompt, chatEndpoint])
 
   const handleClear = async () => {
     if (conversationId) {
-      try { await deleteConversation(conversationId) } catch { /* ignore */ }
+      try { await deleteConversation(conversationId, deleteEndpoint) } catch { /* ignore */ }
     }
     setMessages([])
     setSteps([])
@@ -133,7 +154,7 @@ export default function AgentPanel({ providerId }: Props) {
       <div className={styles.chatSide}>
         <div className={styles.chatHeader}>
           <div className={styles.chatHeaderLeft}>
-            <h3 className={styles.chatTitle}>Agent</h3>
+            <h3 className={styles.chatTitle}>{title}</h3>
             {conversationId && (
               <span className={styles.convId}>{conversationId.slice(0, 8)}</span>
             )}
@@ -168,10 +189,10 @@ export default function AgentPanel({ providerId }: Props) {
           {messages.length === 0 && (
             <div className={styles.emptyState}>
               <div className={styles.emptyIcon}>🤖</div>
-              <p className={styles.emptyTitle}>Agent Simulation</p>
+              <p className={styles.emptyTitle}>{title}</p>
               <p className={styles.emptyText}>
                 {providerId
-                  ? 'Ask the agent to explore, query, or modify the knowledge graph'
+                  ? emptyText
                   : 'Select a provider to begin'}
               </p>
             </div>

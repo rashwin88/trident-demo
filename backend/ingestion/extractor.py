@@ -1,3 +1,21 @@
+"""Knowledge extraction module — converts raw LLM output into typed Pydantic models.
+
+Sits between the DSPy extraction pipeline (which returns raw dicts) and the
+graph/store layer (which expects validated Pydantic models).  The public
+function extract_from_chunk orchestrates a single unified LLM call and then
+delegates to _build_* helpers that safely coerce the LLM's JSON into the
+corresponding Pydantic models, logging and skipping any malformed items.
+
+Consumed by:
+    - ingestion.pipeline  (calls extract_from_chunk for each KnowledgeChunk)
+
+Key design choices:
+    - Each _build_* function is tolerant of missing/malformed keys because
+      LLM output is inherently unpredictable.
+    - Procedure step numbers are coerced through int(float(str(x))) because
+      the LLM sometimes returns "1.1" or "Step 1" instead of plain ints.
+"""
+
 import logging
 
 from models import (
@@ -22,7 +40,19 @@ def extract_from_chunk(
     chunk: KnowledgeChunk,
     pipeline: FullExtractionPipeline,
 ) -> ExtractionResult:
-    """Single unified LLM call per chunk → entities + concepts + relationships + propositions."""
+    """Extract all knowledge-graph elements from a single chunk.
+
+    Makes one unified LLM call via the pipeline, then converts the raw
+    dicts into validated Pydantic models.
+
+    Args:
+        chunk:    The KnowledgeChunk to extract from.
+        pipeline: A configured FullExtractionPipeline instance.
+
+    Returns:
+        ExtractionResult containing lists of entities, concepts,
+        relationships, and propositions.
+    """
     text = chunk.text
 
     # One LLM call for everything
@@ -45,6 +75,14 @@ def extract_from_chunk(
 
 
 def _build_entities(raw: list[dict]) -> list[ExtractedNamedEntity]:
+    """Convert raw entity dicts into ExtractedNamedEntity models.
+
+    Args:
+        raw: List of dicts with keys label, entity_type, description.
+
+    Returns:
+        List of validated models; malformed items are logged and skipped.
+    """
     entities = []
     for item in raw:
         try:
@@ -61,6 +99,14 @@ def _build_entities(raw: list[dict]) -> list[ExtractedNamedEntity]:
 
 
 def _build_concepts(raw: list[dict]) -> list[ExtractedConcept]:
+    """Convert raw concept dicts into ExtractedConcept models.
+
+    Args:
+        raw: List of dicts with keys name, definition, aliases.
+
+    Returns:
+        List of validated models; malformed items are logged and skipped.
+    """
     concepts = []
     for item in raw:
         try:
@@ -77,14 +123,34 @@ def _build_concepts(raw: list[dict]) -> list[ExtractedConcept]:
 
 
 def _build_relationships(raw: list[dict]) -> list[ExtractedRelationship]:
+    """Convert raw relationship dicts into ExtractedRelationship models.
+
+    Edge types are enforced at the LLM level via the Literal-typed Pydantic
+    output model in dspy_programs.py — the LLM cannot return invalid types.
+    A safety-net validation is kept here as defense-in-depth.
+
+    Args:
+        raw: List of dicts with keys source_label, edge_type, target_label,
+             and optional confidence.
+
+    Returns:
+        List of validated models; malformed items are logged and skipped.
+    """
+    from stores.graph_constants import EDGE_VOCABULARY
+
     relations = []
     for item in raw:
         try:
+            edge_type = item["edge_type"]
+            if edge_type not in EDGE_VOCABULARY:
+                logger.warning(f"Dropping invalid edge type '{edge_type}' (should not happen with typed output)")
+                continue
             relations.append(
                 ExtractedRelationship(
                     source_label=item["source_label"],
-                    edge_type=item["edge_type"],
+                    edge_type=edge_type,
                     target_label=item["target_label"],
+                    description=item.get("description", ""),
                     confidence=item.get("confidence", 1.0),
                 )
             )
@@ -96,6 +162,15 @@ def _build_relationships(raw: list[dict]) -> list[ExtractedRelationship]:
 def _build_propositions(
     raw: list[dict], chunk_id: str
 ) -> list[ExtractedProposition]:
+    """Convert raw proposition dicts into ExtractedProposition models.
+
+    Args:
+        raw:      List of dicts with keys subject, predicate, object.
+        chunk_id: ID of the source chunk, attached for provenance.
+
+    Returns:
+        List of validated models; malformed items are logged and skipped.
+    """
     props = []
     for item in raw:
         try:
@@ -113,6 +188,18 @@ def _build_propositions(
 
 
 def _build_procedure(raw: dict | None, source_chunk: str) -> ExtractedProcedure | None:
+    """Convert a raw procedure dict into an ExtractedProcedure model.
+
+    Handles common LLM output quirks: step_number may be a float string
+    ("1.1"), prerequisites may be None instead of an empty list, etc.
+
+    Args:
+        raw:          Dict with keys name, intent, steps -- or None.
+        source_chunk: ID of the source chunk, for provenance.
+
+    Returns:
+        ExtractedProcedure with coerced step numbers, or None on failure.
+    """
     if raw is None:
         return None
     try:
@@ -150,6 +237,14 @@ def _build_procedure(raw: dict | None, source_chunk: str) -> ExtractedProcedure 
 
 
 def _build_table_semantic(raw: dict | None) -> ExtractedTableSemantic | None:
+    """Convert a raw table-semantic dict into an ExtractedTableSemantic model.
+
+    Args:
+        raw: Dict with keys table_name, description, columns -- or None.
+
+    Returns:
+        ExtractedTableSemantic with column metadata, or None on failure.
+    """
     if raw is None:
         return None
     try:

@@ -1,0 +1,43 @@
+Standard Operating Procedure: RDS Primary Database Failover
+
+SOP ID: DBA-2024-009
+Effective Date: April 1, 2024
+Owner: Database Reliability Engineering (DRE)
+Approved By: Maria Santos, VP of Platform Engineering
+
+1. Purpose
+
+This procedure restores database availability when the primary RDS Aurora PostgreSQL instance (prod-aurora-pg-01-writer) becomes unresponsive. It is triggered by PagerDuty alert P1-DB-PRIMARY-DOWN.
+
+2. Prerequisites
+
+- AWS CLI access with IAM role dba-failover-prod
+- SSH access to bastion host bastion-prod-01 (10.0.1.10)
+- Active PagerDuty incident ID from the triggering alert
+- Slack access to #incident-response channel
+
+3. Procedure Steps
+
+Step 1: Check the current status of the RDS instance prod-aurora-pg-01-writer using the AWS CLI to confirm the outage.
+
+Step 2: Post an initial notification to Slack channel #incident-response indicating that the DRE team is investigating a primary database outage.
+
+Step 3: Acknowledge the PagerDuty incident to signal that the team is actively working on resolution.
+
+Step 4: SSH into bastion-prod-01 and run the database connectivity health check: /opt/scripts/db-health-check.sh to verify the primary is unreachable.
+
+Step 5: If the health check confirms the primary is down, initiate an RDS failover of cluster prod-aurora-pg-01 to promote the standby reader instance.
+
+Step 6: Wait 60 seconds, then SSH into bastion-prod-01 and run the health check again to verify the new primary is responding.
+
+Step 7: Update the DNS CNAME record db-write.prod.internal to point to the new primary endpoint returned by the failover.
+
+Step 8: Run the full application health check against the API service to confirm end-to-end connectivity is restored.
+
+Step 9: Post a resolution update to Slack channel #incident-response summarizing the failover: type (manual), duration, and verification results.
+
+Step 10: Resolve the PagerDuty incident with a note documenting the actions taken and the current system state.
+
+4. Rollback
+
+If the promoted reader shows degraded performance (P99 latency > 500ms for 5 minutes), initiate a second failover back to the original AZ. Contact Maria Santos before executing a double failover.

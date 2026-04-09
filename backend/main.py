@@ -1,3 +1,20 @@
+"""Trident backend application entry point.
+
+Creates the FastAPI app, wires up middleware, mounts routers, and defines the
+async lifespan that connects to Neo4j / Milvus, configures DSPy, and
+pre-warms the Docling document converter.
+
+Middleware stack (applied in order):
+  - NoCacheHeadersMiddleware — strips ETag/Last-Modified and sets aggressive
+    no-cache headers so the browser never serves stale API responses.
+  - CORSMiddleware — allows the Vite dev server origins.
+
+If a React production build exists at the expected dist path, it is served
+as a static mount at ``/`` so the backend can act as a single deployable.
+
+Routers mounted: health, providers, ingest, query, agent.
+"""
+
 import logging
 from contextlib import asynccontextmanager
 
@@ -19,6 +36,7 @@ logger = logging.getLogger(__name__)
 
 @retry(stop=stop_after_attempt(10), wait=wait_exponential(min=2, max=30))
 async def wait_for_neo4j() -> None:
+    """Block until Neo4j is reachable, retrying with exponential backoff."""
     logger.info("Waiting for Neo4j...")
     await graph_store.connect()
     connected = await graph_store.verify_connectivity()
@@ -29,6 +47,7 @@ async def wait_for_neo4j() -> None:
 
 @retry(stop=stop_after_attempt(10), wait=wait_exponential(min=2, max=30))
 def wait_for_milvus() -> None:
+    """Block until Milvus is reachable, retrying with exponential backoff."""
     logger.info("Waiting for Milvus...")
     knowledge_store.connect()
     procedural_store.connect()
@@ -42,6 +61,17 @@ def wait_for_milvus() -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    """FastAPI lifespan handler: startup and shutdown logic.
+
+    Startup:
+      1. Wait for Neo4j and Milvus to become available (with retries).
+      2. Configure DSPy with the selected LLM provider/model.
+      3. Pre-warm the Docling document converter to avoid a cold-start
+         delay of 30-60 s on the first PDF ingestion.
+
+    Shutdown:
+      Close the Neo4j driver connection pool.
+    """
     await wait_for_neo4j()
     wait_for_milvus()
 
@@ -73,6 +103,12 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import Response
 
 class NoCacheHeadersMiddleware(BaseHTTPMiddleware):
+    """Strip caching headers and set no-cache directives on every response.
+
+    Prevents browsers and proxies from caching API responses, which would
+    cause stale data in the frontend after mutations (e.g. provider creation).
+    """
+
     async def dispatch(self, request, call_next):
         response: Response = await call_next(request)
         for h in ["etag", "last-modified"]:
@@ -111,9 +147,11 @@ from routers.providers import router as providers_router
 from routers.ingest import router as ingest_router
 from routers.query import router as query_router
 from routers.agent import router as agent_router
+from routers.task_agent import router as task_agent_router
 
 app.include_router(health_router)
 app.include_router(providers_router)
 app.include_router(ingest_router)
 app.include_router(query_router)
 app.include_router(agent_router)
+app.include_router(task_agent_router)

@@ -1,4 +1,23 @@
-"""Fetch web pages for ingestion. Supports single page and shallow crawl."""
+"""Web page fetcher -- downloads HTML for ingestion into the knowledge graph.
+
+Supports two modes:
+    - Single-page fetch (fetch_page) for a known URL.
+    - Shallow recursive crawl (fetch_with_crawl) that follows same-domain
+      links up to a configurable depth, respecting a MAX_PAGES safety cap.
+
+The returned FetchedPage objects carry raw HTML which is handed to
+ingestion.parsers (as DocumentType.WEB) for Docling-based conversion.
+
+Consumed by:
+    - ingestion.pipeline  (calls fetch_with_crawl when processing web URLs)
+
+Key design choices:
+    - Only same-domain links are followed to avoid runaway crawls.
+    - Non-HTML responses (images, CSS, JS) are silently skipped.
+    - Title extraction uses a lightweight regex rather than a full HTML
+      parser, keeping the dependency footprint small.
+    - A custom User-Agent identifies the crawler for server logs.
+"""
 
 import logging
 from dataclasses import dataclass
@@ -20,7 +39,18 @@ class FetchedPage:
 
 
 async def fetch_page(url: str, timeout: int = DEFAULT_TIMEOUT) -> FetchedPage:
-    """Fetch a single page and return its HTML."""
+    """Fetch a single web page and return its HTML content.
+
+    Args:
+        url:     The URL to fetch.
+        timeout: HTTP request timeout in seconds.
+
+    Returns:
+        FetchedPage with the URL, raw HTML, and extracted title.
+
+    Raises:
+        httpx.HTTPStatusError: If the server returns a non-2xx response.
+    """
     async with httpx.AsyncClient(
         follow_redirects=True,
         timeout=timeout,
@@ -77,7 +107,20 @@ async def _crawl_recursive(
     visited: set[str],
     pages: list[FetchedPage],
 ) -> None:
-    """Recursively fetch pages, staying on the same domain."""
+    """Recursively fetch pages, staying on the same domain.
+
+    Terminates when remaining_depth hits 0, the URL has already been
+    visited, or the MAX_PAGES cap is reached.  HTTP errors on individual
+    pages are logged and swallowed so the crawl continues.
+
+    Args:
+        client:          Shared httpx async client (connection pooling).
+        url:             The URL to fetch in this recursion step.
+        base_domain:     Domain restriction -- links outside this are ignored.
+        remaining_depth: How many more link-follow hops are allowed.
+        visited:         Mutable set of normalized URLs already fetched.
+        pages:           Mutable list that accumulates FetchedPage results.
+    """
     # Normalize URL
     normalized = _normalize_url(url)
     if normalized in visited or len(pages) >= MAX_PAGES:
@@ -117,7 +160,12 @@ async def _crawl_recursive(
 
 
 def _normalize_url(url: str) -> str:
-    """Strip fragments and trailing slashes for dedup."""
+    """Normalize a URL by stripping fragments and trailing slashes.
+
+    This ensures that "https://example.com/page#section" and
+    "https://example.com/page/" are treated as the same page for
+    deduplication purposes.
+    """
     parsed = urlparse(url)
     path = parsed.path.rstrip("/") or "/"
     return f"{parsed.scheme}://{parsed.netloc}{path}"
@@ -133,7 +181,20 @@ def _extract_title(html: str) -> str:
 
 
 def _extract_links(html: str, base_url: str, base_domain: str) -> list[str]:
-    """Extract same-domain links from HTML."""
+    """Extract same-domain HTTP(S) links from raw HTML.
+
+    Filters out anchors, javascript/mailto URIs, and common non-content
+    file extensions (images, fonts, archives) to keep the crawl focused
+    on navigable pages.
+
+    Args:
+        html:        Raw HTML string to scan for href attributes.
+        base_url:    The page URL, used to resolve relative hrefs.
+        base_domain: Only links matching this domain are returned.
+
+    Returns:
+        Deduplicated list of absolute URLs on the same domain.
+    """
     import re
     links: list[str] = []
     seen: set[str] = set()
