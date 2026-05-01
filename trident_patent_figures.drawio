@@ -1,0 +1,495 @@
+<mxfile host="65bd71144e">
+    <diagram name="FIG. 1 — System 100" id="fig1">
+        <mxGraphModel dx="1640" dy="768" grid="0" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1169" pageHeight="826" math="0" shadow="0">
+            <root>
+                <mxCell id="0"/>
+                <mxCell id="1" parent="0"/>
+                <mxCell id="title1" value="FIG. 1 — System 100 (Architecture Overview)" style="text;align=center;fontSize=16;fontStyle=1" parent="1" vertex="1">
+                    <mxGeometry x="40" y="20" width="1080" height="30" as="geometry"/>
+                </mxCell>
+                <mxCell id="f110" value="110&#xa;Frontend Application&#xa;(React / Vite)" style="rounded=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=12;align=center;whiteSpace=wrap" parent="1" vertex="1">
+                    <mxGeometry x="60" y="120" width="220" height="100" as="geometry"/>
+                </mxCell>
+                <mxCell id="b120" value="120&#xa;Backend Service&#xa;(FastAPI + DSPy)" style="rounded=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=12;align=center;whiteSpace=wrap" parent="1" vertex="1">
+                    <mxGeometry x="460" y="120" width="240" height="100" as="geometry"/>
+                </mxCell>
+                <mxCell id="sse180" value="180&#xa;Server-Sent Events&#xa;(progress + answer streaming)" style="shape=mxgraph.flowchart.summing_function;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=11;align=center" parent="1" vertex="1">
+                    <mxGeometry x="320" y="135" width="120" height="70" as="geometry"/>
+                </mxCell>
+                <mxCell id="e1" style="endArrow=classic;html=1" parent="1" source="f110" target="sse180" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e2" style="endArrow=classic;html=1" parent="1" source="sse180" target="b120" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="g130" value="130&#xa;Graph Database&#xa;(Neo4j 5.18)" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=15;fillColor=#f8cecc;strokeColor=#b85450;fontSize=11;align=center" parent="1" vertex="1">
+                    <mxGeometry x="100" y="320" width="160" height="120" as="geometry"/>
+                </mxCell>
+                <mxCell id="ks140" value="140&#xa;Chunk-Vector Store&#xa;ks_{pid}&#xa;(Milvus)" style="shape=cylinder3;whiteSpace=wrap;html=1;size=15;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=11;align=center" parent="1" vertex="1">
+                    <mxGeometry x="290" y="320" width="160" height="120" as="geometry"/>
+                </mxCell>
+                <mxCell id="ps150" value="150&#xa;Procedure-Vector Store&#xa;ps_{pid}&#xa;(Milvus)" style="shape=cylinder3;whiteSpace=wrap;html=1;size=15;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=11;align=center" parent="1" vertex="1">
+                    <mxGeometry x="480" y="320" width="180" height="120" as="geometry"/>
+                </mxCell>
+                <mxCell id="gn160" value="160&#xa;Graph Node Index&#xa;gn_{pid}&#xa;(neo4j_id + embedding)" style="shape=cylinder3;whiteSpace=wrap;html=1;size=15;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=11;align=center;fontStyle=1" parent="1" vertex="1">
+                    <mxGeometry x="690" y="320" width="200" height="120" as="geometry"/>
+                </mxCell>
+                <mxCell id="prov170" value="" style="rounded=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=12;align=center;fontStyle=1" parent="1" vertex="1">
+                    <mxGeometry x="940" y="120" width="180" height="320" as="geometry"/>
+                </mxCell>
+                <mxCell id="llm171" value="171&#xa;LLM Provider&#xa;(OpenAI / Anthropic / Ollama)" style="rounded=0;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=11;align=center;whiteSpace=wrap" parent="1" vertex="1">
+                    <mxGeometry x="960" y="160" width="150" height="80" as="geometry"/>
+                </mxCell>
+                <mxCell id="emb172" value="172&#xa;Embedding Provider&#xa;(OpenAI / Ollama)" style="rounded=0;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=11;align=center;whiteSpace=wrap" parent="1" vertex="1">
+                    <mxGeometry x="960" y="280" width="150" height="80" as="geometry"/>
+                </mxCell>
+                <mxCell id="eb1" style="endArrow=classic;html=1" parent="1" source="b120" target="g130" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="eb2" style="endArrow=classic;html=1" parent="1" source="b120" target="ks140" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="eb3" style="endArrow=classic;html=1" parent="1" source="b120" target="ps150" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="eb4" style="endArrow=classic;html=1;strokeWidth=2;strokeColor=#d79b00" parent="1" source="b120" target="gn160" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="eb5" style="endArrow=classic;html=1" parent="1" source="b120" target="llm171" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="eb6" style="endArrow=classic;html=1" parent="1" source="b120" target="emb172" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="gnLink" value="neo4j_id link" style="endArrow=classic;startArrow=classic;dashed=1;html=1;strokeWidth=2;strokeColor=#d79b00;fontSize=10" parent="1" source="gn160" target="g130" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="legend1" value="100 = system; 110 = frontend; 120 = backend; 130 = graph DB; 140 = chunk vectors; 150 = procedure vectors; 160 = graph node index (dual purpose); 170 = external model providers; 180 = SSE channel" style="text;align=left;fontSize=10;fontStyle=2" parent="1" vertex="1">
+                    <mxGeometry x="60" y="500" width="1050" height="60" as="geometry"/>
+                </mxCell>
+            </root>
+        </mxGraphModel>
+    </diagram>
+    <diagram name="FIG. 2 — Four-Store 200" id="fig2">
+        <mxGraphModel dx="1523" dy="713" grid="0" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1169" pageHeight="826" math="0" shadow="0">
+            <root>
+                <mxCell id="0"/>
+                <mxCell id="1" parent="0"/>
+                <mxCell id="title2" value="FIG. 2 — Four-Store Data Layer 200" style="text;align=center;fontSize=16;fontStyle=1" parent="1" vertex="1">
+                    <mxGeometry x="40" y="20" width="1080" height="30" as="geometry"/>
+                </mxCell>
+                <mxCell id="gdbox" value="130 — Graph Database (Neo4j)" style="rounded=1;fillColor=#fff4e6;strokeColor=#b85450;fontSize=12;align=center;verticalAlign=top;fontStyle=1" parent="1" vertex="1">
+                    <mxGeometry x="40" y="80" width="540" height="500" as="geometry"/>
+                </mxCell>
+                <mxCell id="n211" value="211 Document" style="rounded=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=11;align=center" parent="1" vertex="1">
+                    <mxGeometry x="60" y="120" width="120" height="40" as="geometry"/>
+                </mxCell>
+                <mxCell id="n212" value="212 Chunk" style="rounded=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=11;align=center" parent="1" vertex="1">
+                    <mxGeometry x="200" y="120" width="120" height="40" as="geometry"/>
+                </mxCell>
+                <mxCell id="n213" value="213 Entity" style="rounded=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=11;align=center" parent="1" vertex="1">
+                    <mxGeometry x="340" y="120" width="120" height="40" as="geometry"/>
+                </mxCell>
+                <mxCell id="n214" value="214 Concept" style="rounded=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=11;align=center" parent="1" vertex="1">
+                    <mxGeometry x="60" y="180" width="120" height="40" as="geometry"/>
+                </mxCell>
+                <mxCell id="n215" value="215 Proposition" style="rounded=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=11;align=center" parent="1" vertex="1">
+                    <mxGeometry x="200" y="180" width="120" height="40" as="geometry"/>
+                </mxCell>
+                <mxCell id="n216" value="216 Procedure" style="rounded=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=11;align=center" parent="1" vertex="1">
+                    <mxGeometry x="340" y="180" width="120" height="40" as="geometry"/>
+                </mxCell>
+                <mxCell id="n217" value="217 Step" style="rounded=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=11;align=center" parent="1" vertex="1">
+                    <mxGeometry x="60" y="240" width="120" height="40" as="geometry"/>
+                </mxCell>
+                <mxCell id="n218" value="218 TableSchema" style="rounded=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=11;align=center" parent="1" vertex="1">
+                    <mxGeometry x="200" y="240" width="120" height="40" as="geometry"/>
+                </mxCell>
+                <mxCell id="prop219" value="219 — Every node carries property: provider_id" style="rounded=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=12;align=center;fontStyle=1" parent="1" vertex="1">
+                    <mxGeometry x="60" y="320" width="500" height="40" as="geometry"/>
+                </mxCell>
+                <mxCell id="edges20" value="20 closed-vocabulary edge types + 1 structural (HAS_STEP):&#xa;ASSERTS, BILLED_ON, CLASSIFIED_AS, CONTAINS, DEFINES, DESCRIBED_BY,&#xa;FLAGS, GOVERNED_BY, IMPLEMENTED_BY, INSTANCE_OF, MENTIONS, PART_OF,&#xa;PRECEDES, PROVISIONED_FROM, RECONCILES_TO, REFERENCES, RELATED_TO,&#xa;SOURCED_FROM, SUPERSEDES, TERMINATES_AT, HAS_STEP" style="rounded=1;fillColor=#ffffff;strokeColor=#666666;fontSize=10;align=left;whiteSpace=wrap" parent="1" vertex="1">
+                    <mxGeometry x="60" y="380" width="500" height="180" as="geometry"/>
+                </mxCell>
+                <mxCell id="vbox" value="Vector Indices (Milvus) — per-provider namespacing" style="rounded=1;fillColor=#fff4e6;strokeColor=#9673a6;fontSize=12;align=center;verticalAlign=top;fontStyle=1" parent="1" vertex="1">
+                    <mxGeometry x="620" y="80" width="500" height="500" as="geometry"/>
+                </mxCell>
+                <mxCell id="ksrec" value="140 — Chunk-Vector Store&#xa;collection: ks_{pid}&#xa;Schema:&#xa;  chunk_id (PK)&#xa;  provider_id&#xa;  source_file, doc_type&#xa;  text VARCHAR(8192)&#xa;  embedding FLOAT_VECTOR(768) [IVF_FLAT, COSINE]" style="rounded=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=10;align=left;verticalAlign=top;whiteSpace=wrap" parent="1" vertex="1">
+                    <mxGeometry x="640" y="120" width="220" height="160" as="geometry"/>
+                </mxCell>
+                <mxCell id="psrec" value="150 — Procedure-Vector Store&#xa;collection: ps_{pid}&#xa;Schema:&#xa;  procedure_id (PK)&#xa;  provider_id&#xa;  name, intent&#xa;  steps_json&#xa;  embedding FLOAT_VECTOR(768)" style="rounded=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=10;align=left;verticalAlign=top;whiteSpace=wrap" parent="1" vertex="1">
+                    <mxGeometry x="880" y="120" width="220" height="160" as="geometry"/>
+                </mxCell>
+                <mxCell id="gnrec" value="160 — Graph Node Index (DUAL PURPOSE)&#xa;collection: gn_{pid}&#xa;Schema:&#xa;  161  node_key VARCHAR(256) — PK&#xa;  162  neo4j_id VARCHAR(128) ★&#xa;  163  node_type VARCHAR(32) ∈ {Entity, Concept, Procedure, Step}&#xa;  164  text VARCHAR(2048) — textual signature&#xa;  165  embedding FLOAT_VECTOR(768) [IVF_FLAT, COSINE]&#xa;&#xa;★ Storing neo4j_id alongside the embedding is the key novel feature.&#xa;  Used for (a) write-time deduplication and (b) read-time anchoring." style="rounded=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=10;align=left;verticalAlign=top;whiteSpace=wrap;fontStyle=1" parent="1" vertex="1">
+                    <mxGeometry x="640" y="300" width="460" height="260" as="geometry"/>
+                </mxCell>
+                <mxCell id="legend2" value="Reference signs: 130 graph DB; 140/150/160 vector indices; 211–218 node labels; 219 provider_id property; 161–165 GN record fields." style="text;align=left;fontSize=10;fontStyle=2" parent="1" vertex="1">
+                    <mxGeometry x="40" y="600" width="1080" height="40" as="geometry"/>
+                </mxCell>
+            </root>
+        </mxGraphModel>
+    </diagram>
+    <diagram name="FIG. 3 — Pipeline 300" id="fig3">
+        <mxGraphModel dx="2369" dy="1109" grid="0" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1169" pageHeight="826" math="0" shadow="0">
+            <root>
+                <mxCell id="0"/>
+                <mxCell id="1" parent="0"/>
+                <mxCell id="title3" value="FIG. 3 — Five-Stage Ingestion Pipeline 300" style="text;align=center;fontSize=16;fontStyle=1" parent="1" vertex="1">
+                    <mxGeometry x="40" y="20" width="1080" height="30" as="geometry"/>
+                </mxCell>
+                <mxCell id="doc305" value="305&#xa;Document&#xa;(PDF / DOCX / CSV / SOP / DDL)" style="rounded=0;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=11;align=center;whiteSpace=wrap" parent="1" vertex="1">
+                    <mxGeometry x="40" y="200" width="140" height="80" as="geometry"/>
+                </mxCell>
+                <mxCell id="s310" value="310&#xa;Stage 1 — PARSE&#xa;(Docling parser)" style="rounded=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=11;align=center;whiteSpace=wrap" parent="1" vertex="1">
+                    <mxGeometry x="220" y="200" width="140" height="80" as="geometry"/>
+                </mxCell>
+                <mxCell id="s320" value="320&#xa;Stage 2 — CHUNK&#xa;(Hybrid chunker)" style="rounded=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=11;align=center;whiteSpace=wrap" parent="1" vertex="1">
+                    <mxGeometry x="400" y="200" width="140" height="80" as="geometry"/>
+                </mxCell>
+                <mxCell id="s330" value="330&#xa;Stage 3 — EXTRACT&#xa;(DSPy + LLM 335,&#xa;typed signature, closed&#xa;edge vocabulary)" style="rounded=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=11;align=center;whiteSpace=wrap" parent="1" vertex="1">
+                    <mxGeometry x="580" y="200" width="160" height="100" as="geometry"/>
+                </mxCell>
+                <mxCell id="s340" value="340&#xa;Stage 4 — RESOLVE&#xa;(Semantic Resolver 345&#xa;against GN index 160)" style="rounded=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=11;align=center;whiteSpace=wrap" parent="1" vertex="1">
+                    <mxGeometry x="780" y="200" width="160" height="100" as="geometry"/>
+                </mxCell>
+                <mxCell id="s350" value="350&#xa;Stage 5 — STORE&#xa;(Neo4j + Milvus writes,&#xa;create_edge() write-gate)" style="rounded=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=11;align=center;whiteSpace=wrap" parent="1" vertex="1">
+                    <mxGeometry x="980" y="200" width="160" height="100" as="geometry"/>
+                </mxCell>
+                <mxCell id="se1" style="endArrow=classic;html=1;strokeWidth=2" parent="1" source="doc305" target="s310" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="se2" style="endArrow=classic;html=1;strokeWidth=2" parent="1" source="s310" target="s320" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="se3" style="endArrow=classic;html=1;strokeWidth=2" parent="1" source="s320" target="s330" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="se4" style="endArrow=classic;html=1;strokeWidth=2" parent="1" source="s330" target="s340" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="se5" style="endArrow=classic;html=1;strokeWidth=2" parent="1" source="s340" target="s350" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="sseBus" value="180 — Server-Sent Events channel (per-stage progress events)" style="rounded=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=11;align=center;fontStyle=1" parent="1" vertex="1">
+                    <mxGeometry x="220" y="380" width="920" height="50" as="geometry"/>
+                </mxCell>
+                <mxCell id="ev1" style="endArrow=open;html=1;dashed=1" parent="1" source="s310" target="sseBus" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="ev2" style="endArrow=open;html=1;dashed=1" parent="1" source="s320" target="sseBus" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="ev3" style="endArrow=open;html=1;dashed=1" parent="1" source="s330" target="sseBus" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="ev4" style="endArrow=open;html=1;dashed=1" parent="1" source="s340" target="sseBus" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="ev5" style="endArrow=open;html=1;dashed=1" parent="1" source="s350" target="sseBus" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="g130b" value="130 Graph DB" style="shape=cylinder3;fillColor=#f8cecc;strokeColor=#b85450;fontSize=11;align=center" parent="1" vertex="1">
+                    <mxGeometry x="640" y="510" width="120" height="80" as="geometry"/>
+                </mxCell>
+                <mxCell id="ks140b" value="140 ks_{pid}" style="shape=cylinder3;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=11;align=center" parent="1" vertex="1">
+                    <mxGeometry x="800" y="510" width="120" height="80" as="geometry"/>
+                </mxCell>
+                <mxCell id="ps150b" value="150 ps_{pid}" style="shape=cylinder3;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=11;align=center" parent="1" vertex="1">
+                    <mxGeometry x="940" y="510" width="120" height="80" as="geometry"/>
+                </mxCell>
+                <mxCell id="gn160b" value="160 gn_{pid}" style="shape=cylinder3;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=11;align=center;fontStyle=1" parent="1" vertex="1">
+                    <mxGeometry x="1080" y="510" width="120" height="80" as="geometry"/>
+                </mxCell>
+                <mxCell id="ws1" style="endArrow=classic;html=1" parent="1" source="s350" target="g130b" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="ws2" style="endArrow=classic;html=1" parent="1" source="s350" target="ks140b" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="ws3" style="endArrow=classic;html=1" parent="1" source="s350" target="ps150b" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="ws4" style="endArrow=classic;html=1;strokeWidth=2;strokeColor=#d79b00" parent="1" source="s340" target="gn160b" edge="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <Array as="points">
+                            <mxPoint x="860" y="450"/>
+                            <mxPoint x="1140" y="450"/>
+                        </Array>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="legend3" value="305 source document; 310–350 pipeline stages; 335 LLM extraction program; 345 Semantic Resolver; 180 SSE channel emitting structured progress events." style="text;align=left;fontSize=10;fontStyle=2" parent="1" vertex="1">
+                    <mxGeometry x="40" y="660" width="1100" height="60" as="geometry"/>
+                </mxCell>
+            </root>
+        </mxGraphModel>
+    </diagram>
+    <diagram name="FIG. 4 — Procedure DAG 400" id="fig4">
+        <mxGraphModel dx="2132" dy="998" grid="0" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1169" pageHeight="826" math="0" shadow="0">
+            <root>
+                <mxCell id="0"/>
+                <mxCell id="1" parent="0"/>
+                <mxCell id="title4" value="FIG. 4 — Standard Operating Procedure DAG 400" style="text;align=center;fontSize=16;fontStyle=1" parent="1" vertex="1">
+                    <mxGeometry x="40" y="20" width="1080" height="30" as="geometry"/>
+                </mxCell>
+                <mxCell id="proc410" value="410&#xa;Procedure&#xa;{name, intent, steps_json}" style="ellipse;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=12;align=center;fontStyle=1;whiteSpace=wrap" parent="1" vertex="1">
+                    <mxGeometry x="500" y="80" width="200" height="100" as="geometry"/>
+                </mxCell>
+                <mxCell id="step421" value="421&#xa;Step 1&#xa;{step_number=1, description, responsible}" style="rounded=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=11;align=center;whiteSpace=wrap" parent="1" vertex="1">
+                    <mxGeometry x="200" y="280" width="180" height="100" as="geometry"/>
+                </mxCell>
+                <mxCell id="step422" value="422&#xa;Step 2&#xa;{step_number=2, description, responsible}" style="rounded=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=11;align=center;whiteSpace=wrap" parent="1" vertex="1">
+                    <mxGeometry x="500" y="280" width="180" height="100" as="geometry"/>
+                </mxCell>
+                <mxCell id="step423" value="423&#xa;Step 3&#xa;{step_number=3, description, responsible}" style="rounded=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=11;align=center;whiteSpace=wrap" parent="1" vertex="1">
+                    <mxGeometry x="800" y="280" width="180" height="100" as="geometry"/>
+                </mxCell>
+                <mxCell id="ent461" value="461&#xa;Entity A" style="ellipse;fillColor=#f8cecc;strokeColor=#b85450;fontSize=11;align=center" parent="1" vertex="1">
+                    <mxGeometry x="240" y="500" width="120" height="60" as="geometry"/>
+                </mxCell>
+                <mxCell id="ent462" value="462&#xa;Entity B" style="ellipse;fillColor=#f8cecc;strokeColor=#b85450;fontSize=11;align=center" parent="1" vertex="1">
+                    <mxGeometry x="540" y="500" width="120" height="60" as="geometry"/>
+                </mxCell>
+                <mxCell id="h431" value="431 HAS_STEP" style="endArrow=classic;html=1;fontSize=10;strokeColor=#d6b656" parent="1" source="proc410" target="step421" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="h432" value="432 HAS_STEP" style="endArrow=classic;html=1;fontSize=10;strokeColor=#d6b656" parent="1" source="proc410" target="step422" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="h433" value="433 HAS_STEP" style="endArrow=classic;html=1;fontSize=10;strokeColor=#d6b656" parent="1" source="proc410" target="step423" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="p441" value="441 PRECEDES" style="endArrow=classic;html=1;fontSize=10;strokeColor=#82b366;strokeWidth=2" parent="1" source="step421" target="step422" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="p442" value="442 PRECEDES" style="endArrow=classic;html=1;fontSize=10;strokeColor=#82b366;strokeWidth=2" parent="1" source="step422" target="step423" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="r451" value="451 REFERENCES" style="endArrow=classic;html=1;fontSize=10;strokeColor=#b85450;dashed=1" parent="1" source="step421" target="ent461" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="r452" value="452 REFERENCES" style="endArrow=classic;html=1;fontSize=10;strokeColor=#b85450;dashed=1" parent="1" source="step422" target="ent462" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="legend4" value="410 Procedure node; 421/422/423 Step nodes; 431/432/433 HAS_STEP edges; 441/442 PRECEDES edges; 451/452 REFERENCES edges; 461/462 Entity nodes." style="text;align=left;fontSize=10;fontStyle=2" parent="1" vertex="1">
+                    <mxGeometry x="40" y="600" width="1080" height="60" as="geometry"/>
+                </mxCell>
+            </root>
+        </mxGraphModel>
+    </diagram>
+    <diagram name="FIG. 5 — Dual-Use 160" id="fig5">
+        <mxGraphModel dx="1777" dy="832" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1169" pageHeight="826" math="0" shadow="0">
+            <root>
+                <mxCell id="0"/>
+                <mxCell id="1" parent="0"/>
+                <mxCell id="title5" value="FIG. 5 — Dual Use of the Graph Node Index 160" style="text;align=center;fontSize=16;fontStyle=1" parent="1" vertex="1">
+                    <mxGeometry x="40" y="20" width="1080" height="30" as="geometry"/>
+                </mxCell>
+                <mxCell id="wpath" value="510 — WRITE PATH (during Resolve stage 340 of ingestion)" style="rounded=1;fillColor=#fff4e6;strokeColor=#82b366;fontSize=12;align=center;verticalAlign=top;fontStyle=1" parent="1" vertex="1">
+                    <mxGeometry x="40" y="80" width="540" height="500" as="geometry"/>
+                </mxCell>
+                <mxCell id="cand511" value="511&#xa;Candidate graph node&#xa;(entity / concept)" style="rounded=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=11;align=center;whiteSpace=wrap" parent="1" vertex="1">
+                    <mxGeometry x="60" y="120" width="180" height="60" as="geometry"/>
+                </mxCell>
+                <mxCell id="emb512" value="512&#xa;Embed signature&#xa;(via 172)" style="rounded=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=11;align=center;whiteSpace=wrap" parent="1" vertex="1">
+                    <mxGeometry x="280" y="120" width="160" height="60" as="geometry"/>
+                </mxCell>
+                <mxCell id="search513" value="513&#xa;ANN search GN 160&#xa;top_k = 3, scoped to provider_id" style="rounded=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=11;align=center;whiteSpace=wrap" parent="1" vertex="1">
+                    <mxGeometry x="60" y="220" width="380" height="60" as="geometry"/>
+                </mxCell>
+                <mxCell id="thr515" value="515&#xa;Threshold gate?&#xa;score ≥ θ AND node_type matches" style="rhombus;fillColor=#ffd966;strokeColor=#d6b656;fontSize=11;align=center;whiteSpace=wrap" parent="1" vertex="1">
+                    <mxGeometry x="100" y="320" width="300" height="100" as="geometry"/>
+                </mxCell>
+                <mxCell id="merge516" value="516&#xa;MERGE&#xa;reuse neo4j_id from hit&#xa;(no fuzzy lookup)" style="rounded=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=11;align=center;whiteSpace=wrap" parent="1" vertex="1">
+                    <mxGeometry x="60" y="460" width="200" height="80" as="geometry"/>
+                </mxCell>
+                <mxCell id="create517" value="517&#xa;CREATE in Neo4j 130&#xa;→ fresh neo4j_id" style="rounded=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=11;align=center;whiteSpace=wrap" parent="1" vertex="1">
+                    <mxGeometry x="290" y="460" width="200" height="80" as="geometry"/>
+                </mxCell>
+                <mxCell id="idx518" value="518&#xa;index_node(GN, neo4j_id)&#xa;immediately" style="rounded=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=11;align=center;whiteSpace=wrap" parent="1" vertex="1">
+                    <mxGeometry x="370" y="290" width="200" height="60" as="geometry"/>
+                </mxCell>
+                <mxCell id="we1" style="endArrow=classic;html=1" parent="1" source="cand511" target="emb512" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="we2" style="endArrow=classic;html=1" parent="1" source="emb512" target="search513" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="we3" style="endArrow=classic;html=1" parent="1" source="search513" target="thr515" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="we4" value="YES" style="endArrow=classic;html=1;fontSize=10" parent="1" source="thr515" target="merge516" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="we5" value="NO" style="endArrow=classic;html=1;fontSize=10" parent="1" source="thr515" target="create517" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="we6" style="endArrow=classic;html=1;dashed=1" parent="1" source="create517" target="idx518" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="rpath" value="520 — READ PATH (during query execution)" style="rounded=1;fillColor=#fff4e6;strokeColor=#6c8ebf;fontSize=12;align=center;verticalAlign=top;fontStyle=1" parent="1" vertex="1">
+                    <mxGeometry x="600" y="80" width="540" height="500" as="geometry"/>
+                </mxCell>
+                <mxCell id="q521" value="521&#xa;Natural-language query" style="rounded=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=11;align=center;whiteSpace=wrap" parent="1" vertex="1">
+                    <mxGeometry x="620" y="120" width="200" height="60" as="geometry"/>
+                </mxCell>
+                <mxCell id="emb522" value="522&#xa;Embed query (via 172)" style="rounded=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=11;align=center;whiteSpace=wrap" parent="1" vertex="1">
+                    <mxGeometry x="860" y="120" width="240" height="60" as="geometry"/>
+                </mxCell>
+                <mxCell id="search523" value="523&#xa;ANN search GN 160&#xa;top_k = 10, scoped to provider_id" style="rounded=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=11;align=center;whiteSpace=wrap" parent="1" vertex="1">
+                    <mxGeometry x="620" y="220" width="480" height="60" as="geometry"/>
+                </mxCell>
+                <mxCell id="hits524" value="524&#xa;Hits → {neo4j_id, score, node_type}" style="rounded=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=11;align=center;whiteSpace=wrap" parent="1" vertex="1">
+                    <mxGeometry x="620" y="320" width="480" height="60" as="geometry"/>
+                </mxCell>
+                <mxCell id="anchor525" value="525&#xa;neo4j_id used DIRECTLY as graph anchor&#xa;(no label-based / fuzzy lookup)" style="rounded=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=11;align=center;whiteSpace=wrap;fontStyle=1" parent="1" vertex="1">
+                    <mxGeometry x="620" y="400" width="480" height="60" as="geometry"/>
+                </mxCell>
+                <mxCell id="bfs526" value="526&#xa;Subgraph expansion in Neo4j 130&#xa;(2-hop, scoped to provider_id)" style="rounded=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=11;align=center;whiteSpace=wrap" parent="1" vertex="1">
+                    <mxGeometry x="620" y="490" width="480" height="60" as="geometry"/>
+                </mxCell>
+                <mxCell id="re1" style="endArrow=classic;html=1" parent="1" source="q521" target="emb522" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="re2" style="endArrow=classic;html=1" parent="1" source="emb522" target="search523" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="re3" style="endArrow=classic;html=1" parent="1" source="search523" target="hits524" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="re4" style="endArrow=classic;html=1" parent="1" source="hits524" target="anchor525" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="re5" style="endArrow=classic;html=1;strokeWidth=2" parent="1" source="anchor525" target="bfs526" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="legend5" value="510 write path; 511 candidate; 512 embed; 513 GN search; 515 threshold gate; 516 merge; 517 create new; 518 immediate index. 520 read path; 521 query; 522 embed; 523 GN search; 524 hits; 525 direct anchor (key novelty); 526 subgraph BFS." style="text;align=left;fontSize=10;fontStyle=2" parent="1" vertex="1">
+                    <mxGeometry x="40" y="600" width="1100" height="80" as="geometry"/>
+                </mxCell>
+            </root>
+        </mxGraphModel>
+    </diagram>
+    <diagram name="FIG. 6 — Query Pipeline 600" id="fig6">
+        <mxGraphModel dx="2132" dy="998" grid="0" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1169" pageHeight="826" math="0" shadow="0">
+            <root>
+                <mxCell id="0"/>
+                <mxCell id="1" parent="0"/>
+                <mxCell id="title6" value="FIG. 6 — Query Pipeline 600" style="text;align=center;fontSize=16;fontStyle=1" parent="1" vertex="1">
+                    <mxGeometry x="40" y="20" width="1080" height="30" as="geometry"/>
+                </mxCell>
+                <mxCell id="q605" value="605&#xa;Natural-language query&#xa;(+ provider_id)" style="rounded=0;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=11;align=center;whiteSpace=wrap" parent="1" vertex="1">
+                    <mxGeometry x="40" y="120" width="160" height="80" as="geometry"/>
+                </mxCell>
+                <mxCell id="step610" value="610&#xa;Step 1&#xa;EMBED query" style="rounded=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=11;align=center;whiteSpace=wrap" parent="1" vertex="1">
+                    <mxGeometry x="240" y="120" width="140" height="80" as="geometry"/>
+                </mxCell>
+                <mxCell id="step620" value="620&#xa;Step 2&#xa;GN ANCHOR SEARCH&#xa;(top-k cosine on gn_{pid})" style="rounded=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=11;align=center;whiteSpace=wrap" parent="1" vertex="1">
+                    <mxGeometry x="420" y="120" width="180" height="80" as="geometry"/>
+                </mxCell>
+                <mxCell id="step625" value="625&#xa;Step 3&#xa;ANCHOR FILTER&#xa;score ≥ 0.4&#xa;→ 626 anchors[]" style="rounded=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=11;align=center;whiteSpace=wrap" parent="1" vertex="1">
+                    <mxGeometry x="640" y="120" width="160" height="100" as="geometry"/>
+                </mxCell>
+                <mxCell id="step630" value="630&#xa;Step 4&#xa;SUBGRAPH EXPANSION&#xa;(BFS 2-hop in Neo4j 130,&#xa;APOC subgraphAll,&#xa;scoped to provider_id)" style="rounded=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=11;align=center;whiteSpace=wrap" parent="1" vertex="1">
+                    <mxGeometry x="840" y="120" width="200" height="120" as="geometry"/>
+                </mxCell>
+                <mxCell id="step640" value="640&#xa;Step 5&#xa;CHUNK SEARCH on ks_{pid}&#xa;→ 645 evidence chunks[]" style="rounded=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=11;align=center;whiteSpace=wrap" parent="1" vertex="1">
+                    <mxGeometry x="240" y="280" width="240" height="100" as="geometry"/>
+                </mxCell>
+                <mxCell id="step650" value="650&#xa;Step 6&#xa;PROCEDURE SEARCH on ps_{pid}&#xa;filter score ≥ 0.75&#xa;→ 655 procedures[]" style="rounded=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=11;align=center;whiteSpace=wrap" parent="1" vertex="1">
+                    <mxGeometry x="520" y="280" width="240" height="100" as="geometry"/>
+                </mxCell>
+                <mxCell id="step660" value="660&#xa;Step 7&#xa;CONTEXT ASSEMBLY&#xa;(subgraph + chunks + procedures&#xa;+ provenance)" style="rounded=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=11;align=center;whiteSpace=wrap" parent="1" vertex="1">
+                    <mxGeometry x="800" y="280" width="240" height="120" as="geometry"/>
+                </mxCell>
+                <mxCell id="step670" value="670&#xa;Step 8&#xa;LLM COMPLETION (171)" style="rounded=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=11;align=center;whiteSpace=wrap" parent="1" vertex="1">
+                    <mxGeometry x="800" y="440" width="240" height="80" as="geometry"/>
+                </mxCell>
+                <mxCell id="ans680" value="680&#xa;Answer + reasoning subgraph + provenance&#xa;(streamed via 180 SSE to frontend 110)" style="rounded=0;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=11;align=center;whiteSpace=wrap" parent="1" vertex="1">
+                    <mxGeometry x="40" y="440" width="700" height="80" as="geometry"/>
+                </mxCell>
+                <mxCell id="qe1" style="endArrow=classic;html=1;strokeWidth=2" parent="1" source="q605" target="step610" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="qe2" style="endArrow=classic;html=1;strokeWidth=2" parent="1" source="step610" target="step620" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="qe3" style="endArrow=classic;html=1;strokeWidth=2" parent="1" source="step620" target="step625" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="qe4" style="endArrow=classic;html=1;strokeWidth=2" parent="1" source="step625" target="step630" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="qe5" style="endArrow=classic;html=1" parent="1" source="step610" target="step640" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="qe6" style="endArrow=classic;html=1" parent="1" source="step610" target="step650" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="qe7" style="endArrow=classic;html=1" parent="1" source="step630" target="step660" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="qe8" style="endArrow=classic;html=1" parent="1" source="step640" target="step660" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="qe9" style="endArrow=classic;html=1" parent="1" source="step650" target="step660" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="qe10" style="endArrow=classic;html=1;strokeWidth=2" parent="1" source="step660" target="step670" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="qe11" style="endArrow=classic;html=1;strokeWidth=2" parent="1" source="step670" target="ans680" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="legend6" value="605 query input; 610 embed; 620 GN search; 625 anchor filter; 626 anchors; 630 subgraph expansion; 640 chunk search; 645 chunks; 650 procedure search; 655 procedures; 660 context assembly; 670 LLM completion; 680 answer + provenance." style="text;align=left;fontSize=10;fontStyle=2" parent="1" vertex="1">
+                    <mxGeometry x="40" y="580" width="1100" height="80" as="geometry"/>
+                </mxCell>
+            </root>
+        </mxGraphModel>
+    </diagram>
+    <diagram name="FIG. 7 — Tenant Model 700" id="fig7">
+        <mxGraphModel dx="1066" dy="499" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1169" pageHeight="826" math="0" shadow="0">
+            <root>
+                <mxCell id="0"/>
+                <mxCell id="1" parent="0"/>
+                <mxCell id="title7" value="FIG. 7 — Provider-Scoped Tenant Model 700" style="text;align=center;fontSize=16;fontStyle=1" parent="1" vertex="1">
+                    <mxGeometry x="40" y="20" width="1080" height="30" as="geometry"/>
+                </mxCell>
+                <mxCell id="provA" value="710 — Provider A (provider_id = A)" style="rounded=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=12;align=center;verticalAlign=top;fontStyle=1" parent="1" vertex="1">
+                    <mxGeometry x="40" y="80" width="500" height="320" as="geometry"/>
+                </mxCell>
+                <mxCell id="gA" value="Graph subgraph of Neo4j 130&#xa;{provider_id: A}" style="shape=cylinder3;fillColor=#f8cecc;strokeColor=#b85450;fontSize=11;align=center;whiteSpace=wrap" parent="1" vertex="1">
+                    <mxGeometry x="60" y="120" width="200" height="100" as="geometry"/>
+                </mxCell>
+                <mxCell id="ksA" value="ks_A" style="shape=cylinder3;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=11;align=center" parent="1" vertex="1">
+                    <mxGeometry x="290" y="120" width="100" height="100" as="geometry"/>
+                </mxCell>
+                <mxCell id="psA" value="ps_A" style="shape=cylinder3;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=11;align=center" parent="1" vertex="1">
+                    <mxGeometry x="410" y="120" width="100" height="100" as="geometry"/>
+                </mxCell>
+                <mxCell id="gnA" value="gn_A" style="shape=cylinder3;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=11;align=center;fontStyle=1" parent="1" vertex="1">
+                    <mxGeometry x="290" y="250" width="220" height="100" as="geometry"/>
+                </mxCell>
+                <mxCell id="provB" value="720 — Provider B (provider_id = B)" style="rounded=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=12;align=center;verticalAlign=top;fontStyle=1" parent="1" vertex="1">
+                    <mxGeometry x="600" y="80" width="500" height="320" as="geometry"/>
+                </mxCell>
+                <mxCell id="gB" value="Graph subgraph of Neo4j 130&#xa;{provider_id: B}" style="shape=cylinder3;fillColor=#f8cecc;strokeColor=#b85450;fontSize=11;align=center;whiteSpace=wrap" parent="1" vertex="1">
+                    <mxGeometry x="620" y="120" width="200" height="100" as="geometry"/>
+                </mxCell>
+                <mxCell id="ksB" value="ks_B" style="shape=cylinder3;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=11;align=center" parent="1" vertex="1">
+                    <mxGeometry x="850" y="120" width="100" height="100" as="geometry"/>
+                </mxCell>
+                <mxCell id="psB" value="ps_B" style="shape=cylinder3;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=11;align=center" parent="1" vertex="1">
+                    <mxGeometry x="970" y="120" width="100" height="100" as="geometry"/>
+                </mxCell>
+                <mxCell id="gnB" value="gn_B" style="shape=cylinder3;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=11;align=center;fontStyle=1" parent="1" vertex="1">
+                    <mxGeometry x="850" y="250" width="220" height="100" as="geometry"/>
+                </mxCell>
+                <mxCell id="del730" value="730 — Atomic delete_provider(pid) operation&#xa;(i)  DROP COLLECTION ks_{pid}, ps_{pid}, gn_{pid}&#xa;(ii) MATCH (n {provider_id: $pid}) DETACH DELETE n in graph DB" style="rounded=1;fillColor=#ffd6d6;strokeColor=#b85450;fontSize=12;align=left;whiteSpace=wrap;fontStyle=1" parent="1" vertex="1">
+                    <mxGeometry x="40" y="460" width="1060" height="100" as="geometry"/>
+                </mxCell>
+                <mxCell id="legend7" value="710/720 providers; gn/ks/ps_{pid} per-tenant Milvus collections; 730 atomic single-call deletion across all four stores. Cross-tenant isolation guaranteed at the storage layer." style="text;align=left;fontSize=10;fontStyle=2" parent="1" vertex="1">
+                    <mxGeometry x="40" y="580" width="1060" height="60" as="geometry"/>
+                </mxCell>
+            </root>
+        </mxGraphModel>
+    </diagram>
+</mxfile>

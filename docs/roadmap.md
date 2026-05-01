@@ -554,3 +554,281 @@ Track these metrics per provider:
 - Agent tool call distribution (which tools are used most/least)
 - Path query success rate (for Q2)
 - Provenance coverage (% of answer claims with source evidence)
+
+---
+---
+
+# Axis 3 — Distilled Small Language Models (SLMs)
+
+Trident currently relies on large frontier models (GPT-5, Claude Opus) for every extraction and reasoning step.  Each call costs 2-5K tokens and takes 20-40s.  Distilling task-specific SLMs (3B-8B parameter models fine-tuned on domain-specific traces) can reduce cost by 10-50x and latency by 5-10x while maintaining quality on narrow, well-scoped tasks.
+
+The strategy: use the frontier model as a **teacher** to generate high-quality training traces, then fine-tune a small open-weight model (Phi-3, Llama-3.1-8B, Qwen2.5-7B) on those traces.  The SLM replaces the frontier model for the specific task once it reaches quality parity on the evaluation set.
+
+## Priority Matrix
+
+| # | SLM Target | Effort | Impact | Base Model | Status |
+|---|-----------|--------|--------|------------|--------|
+| S1 | Entity/Relation extractor | High | Very High | Qwen2.5-7B / Llama-3.1-8B | Pending |
+| S2 | Edge-type classifier | Medium | High | Phi-3-mini (3.8B) | Pending |
+| S3 | Extraction quality evaluator | Medium | High | Llama-3.1-8B | Pending |
+| S4 | Cypher query generator | High | Medium | Qwen2.5-Coder-7B | Pending |
+| S5 | Semantic resolver / dedup judge | Low | Medium | Phi-3-mini (3.8B) | Pending |
+
+---
+
+## S1. Entity/Relation Extraction SLM
+
+**Type:** Fine-tuned extractor (replaces `UnifiedExtractionSignature`)
+**Effort:** High
+**Impact:** Very High — extraction dominates ingestion cost and latency
+
+### Problem
+
+Every document chunk triggers a frontier-model call via DSPy `ChainOfThought` to extract entities, concepts, relationships, and propositions.  On a 2048-token chunk this is ~4-6K total tokens (input + CoT reasoning + JSON output) and takes 25-40s per chunk.  For a 50-page document with 25 chunks, extraction alone costs ~$0.50-$1.50 and takes 10-15 minutes.
+
+### Target SLM
+
+A 7-8B parameter model (Qwen2.5-7B-Instruct or Llama-3.1-8B-Instruct) fine-tuned to emit the same Pydantic-typed `ExtractionOutput` schema (entities, concepts, relationships with Literal edge types, propositions).  Post-training, the SLM runs locally on a single consumer GPU (RTX 4090, 24GB) or a small cloud instance (A10G) at ~500-1000 tokens/sec.
+
+### Training Data
+
+- **Source:** Frontier-model extraction traces captured during production ingestion — every `extract_unified()` call's input chunk + raw LLM output JSON.
+- **Volume target:** 5,000-20,000 chunk→extraction pairs covering diverse document types (SOPs, technical docs, web pages, DDL, contracts).
+- **Collection mechanism:** Add a training-data capture hook to `FullExtractionPipeline.extract_unified()` that logs `(chunk_text, extraction_json)` to a JSONL file when a new flag `SETTINGS.CAPTURE_TRAINING_DATA=true` is set.  The hook writes to `backend/training_data/extraction_traces.jsonl`.
+- **Quality filter:** Only keep traces where the extraction passed the Pydantic schema validation and where the resolver merge rate was non-zero (indicates consistent entity naming).
+- **Synthetic augmentation:** Use the frontier model to generate paraphrases of existing chunks (preserving entities) to 3-5x the dataset.
+- **Format:** OpenAI chat format with a system prompt matching the current `UnifiedExtractionSignature` docstring and user turn = chunk text, assistant turn = JSON extraction.
+
+### Evaluation
+
+Hold out 10% of traces as an eval set.  Measure:
+- **Schema adherence:** % of outputs that parse as valid `ExtractionOutput` (target: >99%)
+- **Entity recall:** overlap of extracted entity labels vs. frontier model on same chunk (target: >85%)
+- **Edge type accuracy:** match rate on edge_type predictions (target: >80%)
+- **Latency:** p50/p95 per-chunk extraction time (target: <5s p50)
+
+### Files / Infra
+- `backend/training/capture.py` — extraction trace capture
+- `backend/training/finetune_extractor.py` — LoRA fine-tuning script (Axolotl or Unsloth)
+- `backend/ingestion/dspy_programs.py` — add SLM-backed provider option, toggled via `settings.EXTRACTION_MODEL_PROVIDER`
+
+### References
+- [Unsloth: 2x faster LoRA fine-tuning](https://github.com/unslothai/unsloth)
+- [Axolotl: YAML-configured fine-tuning](https://github.com/OpenAccess-AI-Collective/axolotl)
+- [Qwen2.5 technical report](https://arxiv.org/abs/2412.15115)
+
+---
+
+## S2. Edge-Type Classifier SLM
+
+**Type:** Specialized classifier (augments S1 or runs standalone)
+**Effort:** Medium
+**Impact:** High — fixes the hallucinated edge type issue structurally
+
+### Problem
+
+The LLM still picks suboptimal edge types from the 29-type vocabulary even with Literal constraints and detailed descriptions.  Edges like `AMALGAMATED_INTO` get remapped to `OTHER` or `RELATED_TO`, losing specificity.  This is a classification problem at heart: given a `(source_entity, context_sentence, target_entity)` triple, predict the best edge type.
+
+### Target SLM
+
+A 3-4B parameter model (Phi-3-mini or Qwen2.5-3B) fine-tuned for single-turn classification.  Input: the sentence or short passage + the source and target entity labels.  Output: one of the 22 semantic edge types (or `OTHER` with a suggested alternative).  Runs at 100-200 predictions/sec on a single GPU.
+
+### Training Data
+
+- **Source:** Extraction traces from S1, decomposed into `(context, source, target, edge_type)` tuples.
+- **Volume target:** 50,000+ labeled tuples (edge classification is data-hungry).
+- **Negative sampling:** For each positive tuple, generate 2-3 hard negatives by picking semantically similar but incorrect edge types (e.g., `PART_OF` vs `INSTANCE_OF`).  Use sentence embeddings to find confusable edge types.
+- **Human-in-the-loop refinement:** Review 500-1000 borderline cases where the frontier model's edge choice is flagged by low confidence (<0.7), relabel, and upweight these during training.
+- **Format:** Classification format — prompt template: `"Source: {src}\nTarget: {tgt}\nContext: {sentence}\nEdge type:"` with the answer as a single token (edge type name).
+
+### Evaluation
+- **Top-1 accuracy** on held-out tuples (target: >85%)
+- **Top-3 accuracy** when allowing the model to propose alternatives (target: >95%)
+- **Confusion matrix** across edge types — identifies systematic confusions (e.g., GOVERNED_BY vs IMPLEMENTED_BY)
+
+### Files / Infra
+- `backend/training/edge_classifier.py` — fine-tuning + inference wrapper
+- `backend/ingestion/extractor.py` — optional post-processing stage that re-scores low-confidence edge types via the classifier
+
+### References
+- [Phi-3 Technical Report](https://arxiv.org/abs/2404.14219)
+- [DeepSeek: Scaling classification with synthetic data](https://arxiv.org/abs/2402.03300)
+
+---
+
+## S3. Extraction Quality Evaluator SLM
+
+**Type:** Automated eval model (LLM-as-judge, distilled)
+**Effort:** Medium
+**Impact:** High — unlocks continuous eval without frontier-model cost
+
+### Problem
+
+Measuring extraction quality currently requires either (a) manual review or (b) calling a frontier model to grade each output (expensive).  Without cheap automated eval, we can't catch regressions or compare prompt/model variants at scale.
+
+### Target SLM
+
+An 8B parameter model (Llama-3.1-8B) fine-tuned to act as a judge.  Given `(chunk_text, extraction_json)`, outputs a structured score:
+
+```json
+{
+  "completeness": 0.85,
+  "correctness": 0.92,
+  "edge_type_quality": 0.78,
+  "hallucination_score": 0.05,
+  "overall": 0.82,
+  "issues": ["Missing entity: HashiCorp Vault", "Edge type RELATED_TO too generic for 'AnomalyNet → Kafka'"]
+}
+```
+
+### Training Data
+
+- **Source:** Pairs of `(chunk, extraction, frontier_judge_score)` where the frontier model acted as gold-standard judge.
+- **Volume target:** 2,000-5,000 judge traces.
+- **Generation:** For each captured extraction, prompt GPT-5/Claude Opus with the chunk + extraction + a structured rubric (completeness, correctness, hallucination, edge quality).  Save the judgment.
+- **Diversity:** Include deliberately bad extractions (too few entities, wrong edge types, hallucinated entities) created by perturbing good extractions.  This teaches the judge to discriminate.
+- **Human calibration:** Manually grade 100 extractions and check the frontier judge agrees — if not, refine the rubric before generating training data.
+- **Format:** Chat format, system prompt contains the rubric, user turn contains the chunk + extraction, assistant turn contains the JSON score.
+
+### Evaluation
+- **Correlation with human scores** on a 50-example held-out set (target: Spearman >0.80)
+- **Agreement with frontier judge** on held-out traces (target: >90% within ±0.1 on overall score)
+
+### Files / Infra
+- `backend/eval/extraction_judge.py` — judge inference + batch scoring
+- `backend/eval/eval_harness.py` — run judge across the training set and report aggregate metrics
+- Integrate into CI to catch extraction regressions per commit
+
+### References
+- [Constitutional AI — scalable automated evaluation](https://arxiv.org/abs/2212.08073)
+- [G-Eval: NLG Evaluation using GPT-4 with Better Human Alignment](https://arxiv.org/abs/2303.16634)
+- [JudgeLM: Fine-tuned Judges](https://arxiv.org/abs/2310.17631)
+
+---
+
+## S4. Cypher Query Generator SLM
+
+**Type:** Text-to-Cypher code model (augments Q9)
+**Effort:** High
+**Impact:** Medium — enables reliable NL→Cypher without frontier cost
+
+### Problem
+
+Agent's `trident_cypher` tool works only when the frontier model writes correct Cypher.  The LLM frequently gets relationship direction wrong, misuses `exists()` (removed in Neo4j 5), and forgets `provider_id` scoping.  A specialized Cypher model would produce cleaner queries with lower failure rate.
+
+### Target SLM
+
+A 7B code-specialized model (Qwen2.5-Coder-7B) fine-tuned on Trident-schema-aware NL→Cypher pairs.  Input: natural language question + live graph schema.  Output: parameterized Cypher with correct `provider_id` scoping and Neo4j 5 syntax.
+
+### Training Data
+
+- **Source:** Synthetic NL→Cypher pairs generated from the actual Trident schema.
+- **Volume target:** 10,000-30,000 question+Cypher pairs.
+- **Generation strategy:**
+  1. Take the live graph schema (node types, edge types, properties) for 3-5 providers.
+  2. Use the frontier model with few-shot examples to generate 20-50 Cypher queries per schema, covering: exact match, multi-hop traversal, shortest path, aggregation, property filters, conditional joins.
+  3. Execute each Cypher query against Neo4j — if it runs without error, keep it.  If it errors, have the frontier model fix it.
+  4. Generate a natural-language question for each valid Cypher.
+  5. Augment with variations: same query, different NL phrasings.
+- **Neo4j 5 constraint:** Filter out any generated Cypher using deprecated syntax (`exists()` on properties).  Validate against a real Neo4j 5 instance during generation.
+- **Format:** Prompt template injects the live schema, followed by the question.  Assistant response is the Cypher.
+
+### Evaluation
+- **Execution rate:** % of generated queries that run without error (target: >95%)
+- **Answer match rate:** % of queries returning the same rows as the gold Cypher (target: >80%)
+- **Benchmarks:** Spider, WikiSQL-adapted, and a custom Trident-schema test set of 200 hand-written pairs
+
+### Files / Infra
+- `backend/training/cypher_generator.py` — training + inference
+- `backend/agent/tools.py` — new `trident_cypher_slm` tool that uses the SLM before falling back to the frontier model
+- `backend/training/cypher_synth.py` — synthetic data generation pipeline
+
+### References
+- [Neo4j Text2Cypher Datasets](https://github.com/neo4j-labs/text2cypher)
+- [Spider: A Large-Scale Human-Labeled Dataset](https://arxiv.org/abs/1809.08887)
+- [CodeQwen: Code-specialized fine-tuning](https://qwenlm.github.io/blog/codeqwen1.5/)
+
+---
+
+## S5. Semantic Resolver / Dedup Judge SLM
+
+**Type:** Pairwise classification model (augments R7)
+**Effort:** Low
+**Impact:** Medium — faster and more accurate entity resolution
+
+### Problem
+
+Semantic resolution currently compares candidate embeddings against the GN index with a fixed cosine threshold (0.85 for entities, 0.82 for concepts).  Borderline cases (0.78-0.88) are either all-merged or all-created, losing precision.  The frontier-model fallback in roadmap R7 is expensive.
+
+### Target SLM
+
+A tiny 3B model (Phi-3-mini) fine-tuned as a pairwise classifier: given two candidate entity descriptions, predict "same" / "different" / "unclear".  Use as a lightweight tiebreaker for borderline matches.
+
+### Training Data
+
+- **Source:** Pairs of entities from the graph that the current resolver merged, plus deliberately created hard-negative pairs.
+- **Volume target:** 20,000-50,000 pairs.
+- **Generation:**
+  1. Sample all merged entity pairs from past ingestions (true positives).
+  2. For each merged pair, sample an entity with the *same label prefix but different full label* as a hard negative (e.g., "Meridian MCP" vs "Meridian MIG").
+  3. Use frontier model to generate paraphrases of entity descriptions — two paraphrases of the same entity are positive pairs.
+  4. Include cross-domain negatives (entities from different providers that share a label).
+- **Format:** Prompt template: `"Entity A: {label_a}: {desc_a}\nEntity B: {label_b}: {desc_b}\nAre these the same?"` with answer `"yes"`, `"no"`, or `"unclear"`.
+
+### Evaluation
+- **Pairwise accuracy** on held-out pairs (target: >92%)
+- **Abstention rate** on `"unclear"` cases — should flag borderline pairs for human review without dropping obvious matches
+- **End-to-end impact:** measured by the entity merge rate improvement when used as tiebreaker in the resolver
+
+### Files / Infra
+- `backend/training/dedup_judge.py` — training + inference
+- `backend/ingestion/resolver.py` — integrate SLM tiebreaker for scores in [0.78, 0.88] range
+
+### References
+- [DITTO: Deep Entity Matching with Pre-trained Language Models](https://arxiv.org/abs/2004.00584)
+- [Entity Matching as a Sequence-to-Sequence Task](https://arxiv.org/abs/2402.11080)
+
+---
+
+## Cross-Cutting Concerns
+
+### Training Infrastructure
+
+Before implementing any SLM above, stand up shared training infra:
+- **Training data capture:** A common hook/logger in `backend/training/capture.py` that wraps DSPy calls and writes `(prompt, response, metadata)` to JSONL
+- **Fine-tuning toolkit:** Standardize on Unsloth (fastest) or Axolotl (most flexible).  All SLM configs live in `backend/training/configs/`
+- **Model serving:** Use vLLM or Ollama for local inference; expose SLMs via a common interface so `dspy_programs.py` and other callers can swap providers
+- **Versioning:** Each trained model gets a semantic version and is stored in HuggingFace Hub or a local MinIO bucket.  `settings.EXTRACTION_MODEL=slm-extractor:v1.2` selects which model to use
+
+### Quality Gating
+
+Every SLM deployment must pass a **canary stage**:
+1. Shadow-mode: run SLM alongside frontier model for 7 days, log disagreements
+2. A/B test: 10% of traffic on SLM, compare eval metrics
+3. Full rollout: only if SLM quality is within 5% of frontier on the eval set
+
+### Cost Model
+
+| Task | Frontier cost/call | SLM cost/call (local) | Speedup |
+|------|-------------------|----------------------|---------|
+| Entity extraction (S1) | ~$0.02 | ~$0.0005 | 40x |
+| Edge classification (S2) | ~$0.005 | ~$0.0001 | 50x |
+| Quality eval (S3) | ~$0.015 | ~$0.0003 | 50x |
+| Cypher generation (S4) | ~$0.008 | ~$0.0002 | 40x |
+| Dedup judgment (S5) | ~$0.003 | ~$0.0001 | 30x |
+
+Assuming 1M extractions/month at current scale: ~$20K/month on frontier → ~$500/month on SLMs (+ one-time fine-tuning cost of $200-500 per model).
+
+### Recommended Order
+
+```
+Training infra (capture + serving)
+     ↓
+S3 (quality evaluator) — needed to validate other SLMs
+     ↓
+S1 (entity extractor) — highest ROI
+     ↓
+S2 (edge classifier) + S5 (dedup judge)  ← refinements
+     ↓
+S4 (cypher generator) — depends on Q9 (text2cypher tool)
+```
